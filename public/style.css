@@ -220,3 +220,8 @@ input[type=date].input::-webkit-date-and-time-value{text-align:left;margin:0}
 .bulk{background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:12px 14px;margin-bottom:16px}
 .bulk .checks{max-height:220px}
 .field>label.check{display:flex;text-transform:none;letter-spacing:0;font-size:15px;font-weight:500;margin:0;color:var(--ink-2)}
+
+.day.sel{background:var(--green);color:var(--green-ink);border-color:var(--green);box-shadow:0 6px 14px -6px var(--green)}
+.day.sel.today{outline-color:var(--ink)}
+.day.sel i{background:var(--coral);box-shadow:0 0 0 2px var(--green)}
+.day i{top:2px;right:2px;bottom:auto;min-width:17px;height:17px;font-size:10.5px}

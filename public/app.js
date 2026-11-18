@@ -649,6 +649,7 @@ async function viewCalendar(q) {
     <p class="tabs-note">A számok azt mutatják, hányan vesznek ki szabadidőt aznap. Koppints egy napra a részletekért.</p>
     <div id="dd" class="upcoming" hidden></div>${nav('cal')}`;
   const show = (date) => {
+    document.querySelectorAll('.day[data-day]').forEach((c) => { const on = c.dataset.day === date; c.classList.toggle('sel', on); c.setAttribute('aria-pressed', on); });
     const list = byDay[date] || [];
     const box = document.getElementById('dd'); box.hidden = false;
     box.innerHTML = `<span class="label">${fullDate(date)}</span>${list.length ? list.map((e) => `<a href="#/dolgozo/${e.worker_id}"><b>${fmt(-e.minutes)}</b><span>${esc(e.name)}${e.note ? ` · ${esc(e.note)}` : ''}</span><em></em></a>`).join('') : '<p class="tabs-note" style="margin:0">Ezen a napon senki nem vesz ki szabadidőt.</p>'}`;
