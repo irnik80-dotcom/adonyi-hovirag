@@ -1,6 +1,8 @@
 name = "adonyi-hovirag"
 main = "src/worker.js"
 compatibility_date = "2025-01-01"
+# a Cloudflare felületén megadott titkok és változók maradjanak meg telepítéskor
+keep_vars = true
 
 [assets]
 directory = "./public"
@@ -10,5 +12,5 @@ run_worker_first = ["/api/*"]
 [[d1_databases]]
 binding = "DB"
 database_name = "hovirag"
-# A database_id-t a "wrangler d1 create hovirag" parancs adja; ide kell beírni.
+# A database_id a Cloudflare felületén a D1 adatbázis oldalán látszik.
 database_id = "00000000-0000-0000-0000-000000000000"

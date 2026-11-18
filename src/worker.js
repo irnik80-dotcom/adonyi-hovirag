@@ -1,6 +1,8 @@
 // Adonyi Hóvirág Óvoda – túlóra/szabadidő nyilvántartás (Cloudflare Worker + D1)
 // Titkok (wrangler secret put): ADMIN_PASSWORD, SESSION_SECRET
 
+import { SCHEMA } from './schema.js';
+
 const COOKIE = 'hovirag_session';
 const SESSION_SECONDS = 60 * 60 * 24 * 30;
 const enc = new TextEncoder();
@@ -55,6 +57,9 @@ const BALANCES = `
          (SELECT minutes FROM entries x WHERE x.worker_id = w.id ORDER BY x.date DESC, x.id DESC LIMIT 1) AS last_minutes
   FROM workers w LEFT JOIN entries e ON e.worker_id = w.id`;
 
+let schemaReady;
+const ensureSchema = (env) => (schemaReady ??= env.DB.batch(SCHEMA.map((q) => env.DB.prepare(q))).catch((e) => { schemaReady = undefined; throw e; }));
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -78,6 +83,7 @@ export default {
 
     if (!(await isLoggedIn(request, env))) return fail(401, 'Jelentkezz be.');
     if (path === '/api/me') return json({ ok: true });
+    await ensureSchema(env);
 
     try {
       if (path === '/api/workers' && method === 'GET') {
