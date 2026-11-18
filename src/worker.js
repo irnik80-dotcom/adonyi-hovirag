@@ -106,6 +106,25 @@ export default {
         return json({ id: w.id }, 201);
       }
 
+      if (path === '/api/report' && method === 'GET') {
+        const from = url.searchParams.get('from'), to = url.searchParams.get('to');
+        const only = url.searchParams.get('worker');
+        if (!isDate(from) || !isDate(to) || from > to) return fail(400, 'Hibás időszak.');
+        if (Date.parse(to) - Date.parse(from) > 1000 * 60 * 60 * 24 * 800) return fail(400, 'Az időszak legfeljebb 2 év lehet.');
+        const workers = (await env.DB.prepare(
+          only && only !== 'all' ? 'SELECT id, name FROM workers WHERE id = ?' : 'SELECT id, name FROM workers WHERE active = 1 ORDER BY name COLLATE NOCASE')
+          .bind(...(only && only !== 'all' ? [Number(only)] : [])).all()).results;
+        const { results: rows } = await env.DB.prepare(
+          'SELECT id, worker_id, date, minutes, kind, note FROM entries WHERE date <= ? ORDER BY date, id').bind(to).all();
+        const sheets = workers.map((w) => {
+          const mine = rows.filter((r) => r.worker_id === w.id);
+          const opening = mine.filter((r) => r.date < from).reduce((a, r) => a + r.minutes, 0);
+          const entries = mine.filter((r) => r.date >= from);
+          return { worker: w, opening, entries, closing: opening + entries.reduce((a, r) => a + r.minutes, 0) };
+        });
+        return json({ from, to, generated: new Date().toISOString().slice(0, 10), sheets });
+      }
+
       let m = path.match(/^\/api\/workers\/(\d+)$/);
       if (m && method === 'PATCH') {
         const b = await request.json();
