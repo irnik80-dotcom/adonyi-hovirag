@@ -14,3 +14,6 @@ binding = "DB"
 database_name = "hovirag"
 # A database_id a Cloudflare felületén a D1 adatbázis oldalán látszik.
 database_id = "9d6407db-a06e-45c8-bae2-bf30e745a3c0"
+
+[version_metadata]
+binding = "CF_VERSION_METADATA"

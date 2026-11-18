@@ -104,7 +104,9 @@ const BALANCES = `
        AND e.date > COALESCE((SELECT MAX(to_date) FROM signatures s WHERE s.worker_id = w.id), '0000-00-00')) AS unsigned,
     (SELECT COUNT(*) FROM entries e WHERE e.worker_id = w.id AND e.date <= ?2
        AND e.date > COALESCE((SELECT MAX(to_date) FROM signatures s WHERE s.worker_id = w.id), '0000-00-00')) AS unsigned_old,
-    (SELECT GROUP_CONCAT(group_id) FROM staff_group_members g WHERE g.worker_id = w.id) AS group_ids
+    (SELECT GROUP_CONCAT(group_id) FROM staff_group_members g WHERE g.worker_id = w.id) AS group_ids,
+    (SELECT MAX(at) FROM audit a WHERE a.action = 'worker.update' AND a.detail LIKE '%"active":false%'
+       AND (a.detail LIKE '{"id":' || w.id || ',%' OR a.detail LIKE '{"id":' || w.id || '}')) AS inactive_since
   FROM workers w`;
 const prevMonthEnd = (todayStr) => { const [y, m] = todayStr.split('-').map(Number); return new Date(Date.UTC(y, m - 1, 0)).toISOString().slice(0, 10); };
 const getGroups = async (env) => (await env.DB.prepare('SELECT id, name FROM staff_groups ORDER BY id').all()).results;
@@ -127,6 +129,34 @@ async function runSchema(env) {
   }
 }
 const ensureSchema = (env) => (schemaReady ??= runSchema(env).catch((e) => { schemaReady = undefined; throw e; }));
+
+async function buildReport(env, url, today) {
+  const from = url.searchParams.get('from'), to = url.searchParams.get('to');
+  const only = url.searchParams.get('worker');
+  if (!isDate(from) || !isDate(to) || from > to) return { error: 'Hibás időszak.' };
+  if (Date.parse(to) - Date.parse(from) > 1000 * 60 * 60 * 24 * 800) return { error: 'Az időszak legfeljebb 2 év lehet.' };
+  const grp = /^g\d+$/.test(only || '');
+  const one = only && only !== 'all' && !grp;
+  const workers = (await env.DB.prepare(
+    one ? 'SELECT id, name FROM workers WHERE id = ?'
+      : grp ? 'SELECT w.id, w.name FROM workers w JOIN staff_group_members g ON g.worker_id = w.id WHERE w.active = 1 AND g.group_id = ? ORDER BY w.name COLLATE NOCASE'
+      : 'SELECT id, name FROM workers WHERE active = 1 ORDER BY name COLLATE NOCASE')
+    .bind(...(one ? [Number(only)] : grp ? [Number(only.slice(1))] : [])).all()).results;
+  const rows = (await env.DB.prepare(
+    'SELECT id, worker_id, date, minutes, kind, note FROM entries WHERE date <= ? ORDER BY date, id').bind(to).all()).results;
+  const sigs = (await env.DB.prepare('SELECT id, worker_id, signed_on FROM signatures WHERE from_date = ? AND to_date = ?').bind(from, to).all()).results;
+  const sheets = workers.map((w) => {
+    const mine = rows.filter((r) => r.worker_id === w.id);
+    const opening = mine.filter((r) => r.date < from).reduce((a, r) => a + r.minutes, 0);
+    const entries = mine.filter((r) => r.date >= from);
+    const sig = sigs.find((x) => x.worker_id === w.id);
+    return { worker: w, opening, entries, closing: opening + entries.reduce((a, r) => a + r.minutes, 0), signed: sig ? { id: sig.id, signed_on: sig.signed_on } : null };
+  });
+  let scope = { type: 'all', name: 'Mindenki' };
+  if (grp) scope = { type: 'group', name: (await env.DB.prepare('SELECT name FROM staff_groups WHERE id = ?').bind(Number(only.slice(1))).first())?.name || 'Csoport' };
+  else if (one) scope = { type: 'worker', name: workers[0]?.name || '' };
+  return { today, from, to, generated: today, scope, sheets };
+}
 
 export default {
   async fetch(request, env) {
@@ -168,8 +198,14 @@ export default {
            WHERE e.date > ? AND e.kind = 'use' AND w.active = 1
              AND NOT EXISTS (SELECT 1 FROM entries r WHERE r.reverses_id = e.id)
            ORDER BY e.date, e.id LIMIT 12`).bind(today).all()).results;
+        const todayOff = (await env.DB.prepare(
+          `SELECT e.id, e.minutes, e.note, w.id AS worker_id, w.name
+           FROM entries e JOIN workers w ON w.id = e.worker_id
+           WHERE e.date = ? AND e.kind = 'use' AND w.active = 1
+             AND NOT EXISTS (SELECT 1 FROM entries r WHERE r.reverses_id = e.id)
+           ORDER BY w.name COLLATE NOCASE`).bind(today).all()).results;
         const warnHigh = Number((await getSetting(env, 'warn_high_min')) ?? 2400);
-        return json({ today, prev_month_end: prevEnd, workers: results, upcoming, groups: await getGroups(env), warn_high_min: warnHigh });
+        return json({ today, prev_month_end: prevEnd, workers: results, upcoming, today_off: todayOff, groups: await getGroups(env), warn_high_min: warnHigh });
       }
 
       if (path === '/api/workers' && method === 'POST') {
@@ -201,6 +237,36 @@ export default {
         if (b.active !== undefined) await env.DB.prepare('UPDATE workers SET active = ? WHERE id = ?').bind(b.active ? 1 : 0, id).run();
         await audit(env, 'worker.update', { id, name: b.name, active: b.active });
         return json({ ok: true });
+      }
+
+      m = path.match(/^\/api\/workers\/(\d+)$/);
+      if (m && method === 'DELETE') {
+        const id = Number(m[1]);
+        const cur = await env.DB.prepare('SELECT id, active FROM workers WHERE id = ?').bind(id).first();
+        if (!cur) return fail(404, 'Nincs ilyen dolgozó.');
+        if (cur.active) return fail(409, 'Előbb tedd inaktívvá a dolgozót, utána törölhető.');
+        const count = (await env.DB.prepare('SELECT COUNT(*) AS n FROM entries WHERE worker_id = ?').bind(id).first()).n;
+        // A naplóból eltávolítjuk a dolgozó nevét és a megjegyzések szövegét; csak a név nélküli azonosító marad.
+        const rows = (await env.DB.prepare('SELECT id, action, detail FROM audit').all()).results;
+        const scrub = [];
+        for (const r of rows) {
+          let d; try { d = JSON.parse(r.detail); } catch { continue; }
+          const own = r.action.startsWith('worker.') && d.id === id;
+          const note = r.action === 'entry.note' && d.workerId === id;
+          if (own || note) {
+            delete d.name; delete d.from; delete d.to; d.deleted = true;
+            scrub.push(env.DB.prepare('UPDATE audit SET detail = ? WHERE id = ?').bind(JSON.stringify(d), r.id));
+          }
+        }
+        await env.DB.batch([
+          env.DB.prepare('DELETE FROM entries WHERE worker_id = ?').bind(id),
+          env.DB.prepare('DELETE FROM signatures WHERE worker_id = ?').bind(id),
+          env.DB.prepare('DELETE FROM staff_group_members WHERE worker_id = ?').bind(id),
+          env.DB.prepare('DELETE FROM workers WHERE id = ?').bind(id),
+          ...scrub,
+        ]);
+        await audit(env, 'worker.delete', { id, entries: count });
+        return json({ ok: true, deleted_entries: count });
       }
 
       m = path.match(/^\/api\/workers\/(\d+)\/groups$/);
@@ -316,7 +382,7 @@ export default {
           env.DB.prepare('INSERT INTO entries (worker_id, date, minutes, kind, note) VALUES (?, ?, ?, ?, ?) RETURNING id').bind(wid, b.date, signed, kind, note)));
         const created = out.map((r) => r.results[0].id);
         if (clientId) await env.DB.prepare('INSERT OR IGNORE INTO client_requests (client_id, ids) VALUES (?, ?)').bind(clientId, JSON.stringify(created)).run();
-        await audit(env, 'entry.create', { ids: created, workerIds: ids, minutes: signed, kind, date: b.date, overrideSigned: signedHits.length > 0 || undefined, offline: clientId ? true : undefined });
+        await audit(env, 'entry.create', { ids: created, workerIds: ids, minutes: signed, kind, date: b.date, overrideSigned: signedHits.length > 0 || undefined, offline: b.offline ? true : undefined });
         return json({ ids: created }, 201);
       }
 
@@ -409,7 +475,8 @@ export default {
       }
 
       if (path === '/api/audit' && method === 'GET') {
-        const log = (await env.DB.prepare('SELECT id, at, action, detail FROM audit ORDER BY id DESC LIMIT 200').all()).results
+        const limit = Math.min(1000, Math.max(1, Number(url.searchParams.get('limit')) || 200));
+        const log = (await env.DB.prepare('SELECT id, at, action, detail FROM audit ORDER BY id DESC LIMIT ?').bind(limit).all()).results
           .map((r) => ({ ...r, detail: (() => { try { return JSON.parse(r.detail); } catch { return {}; } })() }));
         const workers = Object.fromEntries((await env.DB.prepare('SELECT id, name FROM workers').all()).results.map((x) => [x.id, x.name]));
         return json({ log, workers });
@@ -451,32 +518,38 @@ export default {
       }
 
       if (path === '/api/report' && method === 'GET') {
-        const from = url.searchParams.get('from'), to = url.searchParams.get('to');
-        const only = url.searchParams.get('worker');
-        if (!isDate(from) || !isDate(to) || from > to) return fail(400, 'Hibás időszak.');
-        if (Date.parse(to) - Date.parse(from) > 1000 * 60 * 60 * 24 * 800) return fail(400, 'Az időszak legfeljebb 2 év lehet.');
-        const grp = /^g\d+$/.test(only || '');
-        const one = only && only !== 'all' && !grp;
-        const workers = (await env.DB.prepare(
-          one ? 'SELECT id, name FROM workers WHERE id = ?'
-            : grp ? 'SELECT w.id, w.name FROM workers w JOIN staff_group_members g ON g.worker_id = w.id WHERE w.active = 1 AND g.group_id = ? ORDER BY w.name COLLATE NOCASE'
-            : 'SELECT id, name FROM workers WHERE active = 1 ORDER BY name COLLATE NOCASE')
-          .bind(...(one ? [Number(only)] : grp ? [Number(only.slice(1))] : [])).all()).results;
-        const rows = (await env.DB.prepare(
-          'SELECT id, worker_id, date, minutes, kind, note FROM entries WHERE date <= ? ORDER BY date, id').bind(to).all()).results;
-        const sigs = (await env.DB.prepare('SELECT id, worker_id, signed_on FROM signatures WHERE from_date = ? AND to_date = ?').bind(from, to).all()).results;
-        const sheets = workers.map((w) => {
-          const mine = rows.filter((r) => r.worker_id === w.id);
-          const opening = mine.filter((r) => r.date < from).reduce((a, r) => a + r.minutes, 0);
-          const entries = mine.filter((r) => r.date >= from);
-          const sig = sigs.find((x) => x.worker_id === w.id);
-          return { worker: w, opening, entries, closing: opening + entries.reduce((a, r) => a + r.minutes, 0), signed: sig ? { id: sig.id, signed_on: sig.signed_on } : null };
-        });
-        let scope = { type: 'all', name: 'Mindenki' };
-        if (grp) scope = { type: 'group', name: (await env.DB.prepare('SELECT name FROM staff_groups WHERE id = ?').bind(Number(only.slice(1))).first())?.name || 'Csoport' };
-        else if (one) scope = { type: 'worker', name: workers[0]?.name || '' };
-        return json({ today, from, to, generated: today, scope, sheets });
+        const r = await buildReport(env, url, today);
+        return r.error ? fail(400, r.error) : json(r);
       }
+
+      if (path === '/api/report.csv' && method === 'GET') {
+        const r = await buildReport(env, url, today);
+        if (r.error) return fail(400, r.error);
+        const cell = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+        const hm = (m) => `${m < 0 ? '-' : ''}${Math.floor(Math.abs(m) / 60)}:${String(Math.abs(m) % 60).padStart(2, '0')}`;
+        const KIND = { opening: 'Nyitó egyenleg', credit: 'Túlóra', use: 'Szabadidő', reversal: 'Sztornó' };
+        let lines;
+        if (url.searchParams.get('kind') === 'entries') {
+          lines = [['Dolgozó', 'Dátum', 'Típus', 'Megjegyzés', 'Perc', 'Változás (ó:pp)'].map(cell).join(';')];
+          r.sheets.forEach((s) => s.entries.forEach((e) => lines.push([s.worker.name, e.date, KIND[e.kind], e.note, e.minutes, hm(e.minutes)].map(cell).join(';'))));
+        } else {
+          lines = [['Dolgozó', 'Nyitó (perc)', 'Jóváírás (perc)', 'Kivétel (perc)', 'Záró (perc)', 'Nyitó', 'Jóváírás', 'Kivétel', 'Záró'].map(cell).join(';')];
+          r.sheets.forEach((s) => {
+            const credit = s.entries.reduce((x, e) => x + Math.max(e.minutes, 0), 0);
+            const used = s.entries.reduce((x, e) => x + Math.max(-e.minutes, 0), 0);
+            lines.push([s.worker.name, s.opening, credit, used, s.closing, hm(s.opening), hm(credit), hm(-used), hm(s.closing)].map(cell).join(';'));
+          });
+        }
+        return new Response('﻿' + lines.join('\r\n'), { headers: {
+          'content-type': 'text/csv; charset=utf-8', 'cache-control': 'no-store',
+          'content-disposition': `attachment; filename="hovirag-${url.searchParams.get('kind') === 'entries' ? 'tetelek' : 'osszesito'}-${r.from}_${r.to}.csv"` } });
+      }
+
+      if (path === '/api/version' && method === 'GET') {
+        const v = env.CF_VERSION_METADATA;
+        return json({ id: v?.id ? String(v.id).slice(0, 8) : null, timestamp: v?.timestamp || null });
+      }
+
     } catch (err) {
       console.error(err);
       return fail(500, 'Váratlan hiba történt.');

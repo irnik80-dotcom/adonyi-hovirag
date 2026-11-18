@@ -151,7 +151,7 @@ function statusLine(w) {
 
 async function viewList() {
   $app.innerHTML = '<p class="empty">Betöltés…</p>';
-  const { workers, upcoming, groups, warn_high_min: warnHigh, prev_month_end: prevEnd } = await api('/workers');
+  const { workers, upcoming, today_off: todayOff, groups, warn_high_min: warnHigh, prev_month_end: prevEnd } = await api('/workers');
   const active = workers.filter((w) => w.active);
   const total = active.reduce((s, w) => s + w.balance, 0);
   const f = { g: 0 };
@@ -167,6 +167,8 @@ async function viewList() {
       <div class="big">${bigTime(total)}</div>
       <div class="pills"><span class="pill">${active.length} dolgozó</span>${upcoming.length ? `<span class="pill">${upcoming.length} tervezett szabadidő</span>` : ''}</div>${ICONS.flower}</div>
     ${warns.length ? `<details class="warnlist" ${warns.length <= 3 ? 'open' : ''}><summary>${warns.length} figyelmeztetés</summary>${warns.join('')}</details>` : ''}
+    ${todayOff.length ? `<div class="upcoming todayoff"><span class="label">Ma szabadidőn</span>${todayOff.map((u) => `
+      <a href="#/dolgozo/${u.worker_id}"><b>${fmt(-u.minutes)}</b><span>${esc(u.name)}${u.note ? ` · ${esc(u.note)}` : ''}</span><em></em></a>`).join('')}</div>` : ''}
     ${upcoming.length ? `<div class="upcoming"><span class="label">Közelgő szabadidő</span>${upcoming.map((u) => `
       <a href="#/dolgozo/${u.worker_id}"><b>${shortDate(u.date)}</b><span>${esc(u.name)}</span><em>${fmt(-u.minutes)}</em></a>`).join('')}</div>` : ''}
     ${queueBanner()}
@@ -197,7 +199,7 @@ async function viewNew(preselect) {
   const [{ workers, today: srvToday, groups }, { templates }] = await Promise.all([api('/workers'), api('/templates')]);
   const active = workers.filter((w) => w.active);
   if (!active.length) { $app.innerHTML = `<p class="empty">Előbb vegyél fel dolgozót a Beállításokban.</p>${nav('set')}`; return; }
-  const st = { kind: 'credit', h: 0, m: 30, multi: false, w: preselect && active.some((w) => w.id === +preselect) ? +preselect : active[0].id, picked: new Set() };
+  const st = { kind: 'credit', h: 0, m: 30, mode: 'dur', t1: '16:00', t2: '18:00', multi: false, w: preselect && active.some((w) => w.id === +preselect) ? +preselect : active[0].id, picked: new Set() };
   $app.innerHTML = `
     <div class="topbar"><a class="back" href="#/" aria-label="Vissza">${ICONS.back}</a><h2>Új tétel</h2></div>
     <form id="f">
@@ -210,12 +212,17 @@ async function viewNew(preselect) {
     <div class="field"><span class="label">Mi történt?</span><div class="seg">
       <button type="button" data-kind="credit" aria-pressed="true">+ Túlóra jóváírása</button>
       <button type="button" data-kind="use" aria-pressed="false">− Szabadidő kivétele</button></div></div>
-    <div class="field"><span class="label">Mennyi időt?</span><div class="stepper">
+    <div class="field"><span class="label">Mennyi időt?</span>
+      <div class="seg slim" style="margin-bottom:10px"><button type="button" data-mode="dur" aria-pressed="true">Időtartam</button><button type="button" data-mode="time" aria-pressed="false">Kezdés–vége</button></div>
+      <div id="tm" hidden><div class="row"><div style="flex:1;min-width:0"><label class="label" for="t1">Kezdés</label><input class="input" id="t1" type="time" value="16:00"></div>
+        <div style="flex:1;min-width:0"><label class="label" for="t2">Vége</label><input class="input" id="t2" type="time" value="18:00"></div></div>
+        <p class="tabs-note" id="tmres"></p></div>
+      <div id="dur"><div class="stepper">
       <div class="step"><input id="h" type="number" inputmode="numeric" min="0" max="999" aria-label="Óra"><div class="u">óra</div>
         <div class="pm"><button type="button" data-d="h-1" aria-label="Óra csökkentése">−</button><button type="button" data-d="h+1" aria-label="Óra növelése">+</button></div></div>
       <div class="step"><input id="m" type="number" inputmode="numeric" min="0" max="59" aria-label="Perc"><div class="u">perc</div>
         <div class="pm"><button type="button" data-d="m-5" aria-label="Perc csökkentése">−</button><button type="button" data-d="m+5" aria-label="Perc növelése">+</button></div></div></div>
-      <div class="quick"><button type="button" data-add="15">+15 p</button><button type="button" data-add="30">+30 p</button><button type="button" data-add="60">+1 ó</button><button type="button" data-add="120">+2 ó</button><button type="button" data-add="480">+8 ó</button></div></div>
+      <div class="quick"><button type="button" data-add="15">+15 p</button><button type="button" data-add="30">+30 p</button><button type="button" data-add="60">+1 ó</button><button type="button" data-add="120">+2 ó</button><button type="button" data-add="480">+8 ó</button></div></div></div>
     <div class="field"><label for="d">Dátum</label><input class="input" id="d" type="date" value="${srvToday}" required>
       <p class="tabs-note" id="dnote" hidden></p></div>
     <div class="field"><label for="n">Megjegyzés</label>
@@ -226,10 +233,15 @@ async function viewNew(preselect) {
     </form><div class="savebar"><button class="btn" id="save" type="submit" form="f">Mentés</button></div>`;
   const $ = (id) => document.getElementById(id);
   $('w').value = st.w;
-  const minutes = () => st.h * 60 + st.m;
+  const toMin = (t) => { const [h, m] = (t || '').split(':').map(Number); return Number.isFinite(h) && Number.isFinite(m) ? h * 60 + m : NaN; };
+  const timeMinutes = () => { const d = toMin($('t2').value) - toMin($('t1').value); return Number.isFinite(d) && d > 0 ? d : 0; };
+  const minutes = () => (st.mode === 'time' ? timeMinutes() : st.h * 60 + st.m);
   const targets = () => (st.multi ? [...st.picked] : [+$('w').value]);
   const sync = () => {
     $('h').value = st.h; $('m').value = st.m;
+    $('tm').hidden = st.mode !== 'time'; $('dur').hidden = st.mode === 'time';
+    document.querySelectorAll('[data-mode]').forEach((b) => b.setAttribute('aria-pressed', b.dataset.mode === st.mode));
+    if (st.mode === 'time') $('tmres').textContent = minutes() > 0 ? `Ez ${fmt(minutes())}.` : 'A vége legyen később, mint a kezdés.';
     const future = st.kind === 'use' && $('d').value > srvToday;
     $('d').max = st.kind === 'credit' ? srvToday : '';
     if (st.kind === 'credit' && $('d').value > srvToday) $('d').value = srvToday;
@@ -251,7 +263,8 @@ async function viewNew(preselect) {
   const setMin = (total) => { total = Math.max(0, total); st.h = Math.floor(total / 60); st.m = total % 60; };
   $('h').oninput = () => { st.h = Math.max(0, Math.floor(+$('h').value) || 0); sync(); };
   $('m').oninput = () => { setMin(st.h * 60 + Math.max(0, Math.floor(+$('m').value) || 0)); sync(); };
-  $('w').onchange = sync; $('d').onchange = sync;
+  $('w').onchange = sync; $('d').onchange = sync; $('t1').oninput = sync; $('t2').oninput = sync;
+  document.querySelectorAll('[data-mode]').forEach((b) => (b.onclick = () => { st.mode = b.dataset.mode; sync(); }));
   $('multi').onchange = () => {
     st.multi = $('multi').checked; $('many').hidden = !st.multi; $('w').hidden = st.multi;
     if (st.multi && !st.picked.size) { st.picked.add(+$('w').value); $('many').querySelector(`input[value="${$('w').value}"]`).checked = true; }
@@ -280,7 +293,8 @@ async function viewNew(preselect) {
   sync();
   const submit = async (confirm) => {
     const ids = targets();
-    const body = { worker_ids: ids, kind: st.kind, minutes: minutes(), date: $('d').value, note: $('n').value, client_id: uuid() };
+    const range = st.mode === 'time' ? `${$('t1').value}–${$('t2').value}` : '';
+    const body = { worker_ids: ids, kind: st.kind, minutes: minutes(), date: $('d').value, note: [range, $('n').value.trim()].filter(Boolean).join(' · '), client_id: uuid() };
     const hits = ids.map((id) => active.find((w) => w.id === id)).filter((w) => w && w.signed_to && body.date <= w.signed_to);
     if (hits.length && !confirm) return warnSigned(hits.map((w) => ({ name: w.name, signed_to: w.signed_to })));
     if (confirm) body.confirm_signed = true;
@@ -296,6 +310,7 @@ async function viewNew(preselect) {
       if (err.needsConfirm) { $('save').disabled = false; return warnSigned(err.workers); }
       if (err.offline) {
         const names = ids.map((id) => active.find((w) => w.id === id)?.name).filter(Boolean).join(', ');
+        body.offline = true;
         const q = loadQ(); q.push({ body, label: `${names} · ${fmt(st.kind === 'use' ? -minutes() : minutes(), true)} · ${shortDate(body.date)}` }); saveQ(q);
         toast('Nincs kapcsolat: a tétel a telefonon van, a net visszatérésekor feltöltődik.'); location.hash = '#/';
         return;
@@ -419,6 +434,7 @@ async function viewSettings() {
     <div class="field"><span class="label">Dolgozók</span>${workers.map((w) => `
       <div class="set-item col ${w.active ? '' : 'off'}"><div class="top"><span>${esc(w.name)}</span>
       <button class="btn ghost small" data-toggle="${w.id}" data-active="${w.active ? 0 : 1}">${w.active ? 'Inaktívvá tesz' : 'Aktiválás'}</button></div>
+      ${w.active ? '' : `<div class="inact"><span class="status warn">Kilépett${w.inactive_since ? `: inaktív ${dotted(w.inactive_since.slice(0, 10))} óta` : ''}</span><button class="btn ghost small danger" data-delw="${w.id}" data-name="${esc(w.name)}">Végleges törlés…</button></div>`}
       ${groups.length ? `<div class="quick chips" data-wg="${w.id}">${groups.map((g) => `<button type="button" data-g="${g.id}" aria-pressed="${gidsOf(w).includes(g.id)}">${esc(g.name)}</button>`).join('')}</div>` : ''}</div>`).join('')}</div>
     <div class="field"><span class="label">Munkakörök</span>
       ${groups.map((g) => `<div class="set-item"><span>${esc(g.name)}</span><button class="btn ghost small" data-delgrp="${g.id}">Törlés</button></div>`).join('')}
@@ -440,6 +456,7 @@ async function viewSettings() {
       <input class="input" id="pn2" type="password" autocomplete="new-password" autocapitalize="off" placeholder="Új jelszó mégegyszer" required style="margin-top:8px">
       <div id="pmsg"></div><button class="btn ghost" type="submit">Jelszó módosítása</button></form></div>
     <div class="field"><a class="btn ghost" style="text-decoration:none;margin-top:0" href="#/naplo">Napló megtekintése</a></div>
+    <div class="field"><span class="label">Verzió</span><p class="tabs-note" id="ver" style="margin:0">Betöltés…</p></div>
     <div class="field"><span class="label">Telepítés a telefonra</span>
       <p class="tabs-note" style="margin:0">iPhone: Safari → Megosztás → <b>Főképernyőhöz adás</b>. Android: Chrome → ⋮ menü → <b>Alkalmazás telepítése</b>.</p></div>
     <div class="field"><button class="btn ghost" id="out" type="button">Kijelentkezés</button></div>${nav('set')}`;
@@ -475,6 +492,23 @@ async function viewSettings() {
     e.preventDefault();
     try { await api('/templates', { method: 'POST', body: { text: $('tt').value } }); viewSettings(); } catch (err) { toast(err.message); }
   };
+  api('/version').then((v) => {
+    $('ver').textContent = v.id ? `${v.id}${v.timestamp ? ' · telepítve: ' + new Intl.DateTimeFormat('hu-HU', { timeZone: 'Europe/Budapest', dateStyle: 'medium', timeStyle: 'short' }).format(new Date(v.timestamp)) : ''}` : 'Nem elérhető (helyi futtatás).';
+  }).catch(() => { $('ver').textContent = 'Nem elérhető.'; });
+  document.querySelectorAll('[data-delw]').forEach((b) => (b.onclick = () => {
+    const box = b.closest('.set-item');
+    box.querySelector('.inact').outerHTML = `<div class="warnbox"><b>${esc(b.dataset.name)} végleges törlése</b><br>A dolgozó <b>összes tétele, aláírás-jelölése és munkaköre törlődik</b>, a naplóból a neve is eltűnik. Ez nem vonható vissza.
+      <label class="check"><input type="checkbox" class="ok"><span>Letöltöttem a mentést, és tudom, hogy ez végleges.</span></label>
+      <div class="row"><button class="btn small danger" type="button" data-go disabled>Igen, véglegesen törlöm</button><button class="btn ghost small" type="button" data-no>Mégsem</button></div></div>`;
+    const ok = box.querySelector('.ok'), go = box.querySelector('[data-go]');
+    ok.onchange = () => { go.disabled = !ok.checked; };
+    box.querySelector('[data-no]').onclick = () => viewSettings();
+    go.onclick = async () => {
+      go.disabled = true;
+      try { const r = await api(`/workers/${b.dataset.delw}`, { method: 'DELETE' }); toast(`Törölve (${r.deleted_entries} tétel)`); viewSettings(); }
+      catch (err) { toast(err.message); go.disabled = false; }
+    };
+  }));
   $('pf').onsubmit = async (e) => {
     e.preventDefault();
     const msg = $('pmsg');
@@ -578,7 +612,8 @@ async function viewReportPrint(q) {
       <div class="row" style="margin-top:8px"><input class="input" type="date" id="bd" value="${r.today}"><button class="btn small" id="bgo" type="button">Kijelöltek aláírva</button></div>
       <p class="tabs-note" style="margin-top:6px">Vedd ki a pipát attól, aki még nem írta alá.</p>` : '<p class="tabs-note" style="margin:0">Mindenki aláírta ezt a kimutatást.</p>'}</div>` : '';
   $app.innerHTML = `<div class="noprint"><div class="topbar"><a class="back" href="#/kimutatas" aria-label="Vissza">${ICONS.back}</a><h2>${r.sheets.length} oldal · ${esc(r.scope.name)}</h2></div>
-    <button class="btn" id="print" type="button" style="margin-bottom:16px">Nyomtatás / PDF mentése</button>${bulk}</div>
+    <button class="btn" id="print" type="button" style="margin-bottom:10px">Nyomtatás / PDF mentése</button>
+    <a class="btn ghost" style="text-decoration:none;margin:0 0 16px" href="/api/report.csv?kind=entries&from=${r.from}&to=${r.to}&worker=${encodeURIComponent(q.get('w') || 'all')}" download>Tételek táblázata (Excel, CSV)</a>${bulk}</div>
     ${r.sheets.length ? r.sheets.map(sheet).join('') : '<p class="empty">Nincs dolgozó a kimutatáshoz.</p>'}`;
   const go = document.getElementById('bgo');
   if (go) go.onclick = async () => {
@@ -608,7 +643,8 @@ async function viewReportSummary(q) {
   const sum = (k) => rows.reduce((a, x) => a + x[k], 0);
   const when = stamp();
   $app.innerHTML = `<div class="noprint"><div class="topbar"><a class="back" href="#/kimutatas" aria-label="Vissza">${ICONS.back}</a><h2>Összesítő</h2></div>
-    <button class="btn" id="print" type="button" style="margin-bottom:16px">Nyomtatás / PDF mentése</button></div>
+    <button class="btn" id="print" type="button" style="margin-bottom:10px">Nyomtatás / PDF mentése</button>
+    <a class="btn ghost" style="text-decoration:none;margin:0 0 16px" href="/api/report.csv?kind=summary&from=${r.from}&to=${r.to}&worker=${encodeURIComponent(q.get('w') || 'all')}" download>Összesítő táblázata (Excel, CSV)</a></div>
     <section class="sheet">${sheetHead(when)}
       <h3>Összesítő kimutatás</h3>
       <div class="facts"><div><small>Időszak</small><b>${dotted(r.from)} – ${dotted(r.to)}</b></div><div><small>Kiknek</small><b>${esc(r.scope.name)}</b></div></div>
@@ -661,21 +697,22 @@ async function viewCalendar(q) {
 /* ---------- napló ---------- */
 
 async function viewAudit() {
-  const { log, workers } = await api('/audit');
-  const name = (id) => workers[id] || `#${id}`;
+  const { log, workers } = await api('/audit?limit=1000');
+  const name = (id) => workers[id] || `törölt dolgozó (#${id})`;
   const when = (s) => new Intl.DateTimeFormat('hu-HU', { timeZone: 'Europe/Budapest', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }).format(new Date(s.replace(' ', 'T') + 'Z'));
   const text = (r) => {
     const d = r.detail || {};
     switch (r.action) {
-      case 'worker.create': return `Dolgozó felvéve: ${esc(d.name)}${d.opening ? ` (nyitó: ${fmt(d.opening)})` : ''}`;
-      case 'worker.update': return d.name !== undefined ? `Átnevezve: ${esc(d.name)}` : `${d.active ? 'Aktiválva' : 'Inaktívvá téve'}: ${esc(name(d.id))}`;
+      case 'worker.create': return `Dolgozó felvéve: ${d.name ? esc(d.name) : `törölt dolgozó (#${d.id})`}${d.opening ? ` (nyitó: ${fmt(d.opening)})` : ''}`;
+      case 'worker.delete': return `Dolgozó véglegesen törölve (#${d.id}, ${d.entries} tétel)`;
+      case 'worker.update': return d.deleted ? `Dolgozó módosítva (törölt dolgozó, #${d.id})` : d.name !== undefined ? `Átnevezve: ${esc(d.name)}` : `${d.active ? 'Aktiválva' : 'Inaktívvá téve'}: ${esc(name(d.id))}`;
       case 'entry.create': return `Rögzítve: ${(d.workerIds || []).map((x) => esc(name(x))).join(', ')} · ${fmt(d.minutes, true)} · ${dotted(d.date)}${d.overrideSigned ? ' · <b>aláírt időszakba</b>' : ''}${d.offline ? ' · offline rögzítve' : ''}`;
       case 'entry.undo': return `Visszavonva (törölve): ${(d.ids || []).length} tétel`;
       case 'entry.reverse': return `Sztornó rögzítve (#${d.reverses} tételhez)`;
       case 'signature.create': return `Aláírás rögzítve: ${esc(name(d.wid))} · ${dotted(d.from)} – ${dotted(d.to)}`;
       case 'signature.delete': return 'Aláírás visszavonva';
       case 'signature.bulk': return `Aláírások rögzítve: ${d.count} dolgozó · ${dotted(d.from)} – ${dotted(d.to)}`;
-      case 'entry.note': return `Megjegyzés módosítva: ${esc(name(d.workerId))} · „${esc(d.from)}” → „${esc(d.to)}”${d.overrideSigned ? ' · <b>aláírt időszakban</b>' : ''}`;
+      case 'entry.note': return d.deleted ? `Megjegyzés módosítva (törölt dolgozó, #${d.workerId})` : `Megjegyzés módosítva: ${esc(name(d.workerId))} · „${esc(d.from)}” → „${esc(d.to)}”${d.overrideSigned ? ' · <b>aláírt időszakban</b>' : ''}`;
       case 'worker.groups': return `Munkakör módosítva: ${esc(name(d.id))}`;
       case 'group.create': return `Munkakör létrehozva: ${esc(d.name)}`;
       case 'group.delete': return 'Munkakör törölve';
@@ -685,9 +722,22 @@ async function viewAudit() {
       default: return esc(r.action);
     }
   };
+  const TYPE = { all: 'Mind', entry: 'Tételek', worker: 'Dolgozók', sign: 'Aláírások', sec: 'Biztonság' };
+  const typeOf = (r) => (r.action.startsWith('entry.') ? 'entry' : r.action.startsWith('worker.') || r.action.startsWith('group.') ? 'worker' : r.action.startsWith('signature.') ? 'sign' : 'sec');
+  const f = { t: 'all', q: '' };
   $app.innerHTML = `<div class="topbar"><a class="back" href="#/beallitasok" aria-label="Vissza">${ICONS.back}</a><h2>Napló</h2></div>
-    <p class="tabs-note">Az utolsó ${log.length} esemény, az újabbak elöl.</p>
-    <div class="entries">${log.map((r) => `<div class="entry ${r.action === 'login.fail' ? 'dim' : ''}"><div class="meta"><b>${text(r)}</b><span>${when(r.at)}</span></div></div>`).join('') || '<p class="empty">Még nincs bejegyzés.</p>'}</div>${nav('set')}`;
+    <label class="search">${ICONS.search}<input id="aq" type="search" placeholder="Keresés a naplóban" aria-label="Keresés a naplóban"></label>
+    <div class="quick chips" id="at">${Object.entries(TYPE).map(([k, v]) => `<button type="button" data-at="${k}" aria-pressed="${k === 'all'}">${v}</button>`).join('')}</div>
+    <p class="tabs-note" id="acount"></p><div class="entries" id="al"></div>${nav('set')}`;
+  const plain = (s) => s.replace(/<[^>]+>/g, '').toLowerCase();
+  const draw = () => {
+    const rows = log.filter((r) => (f.t === 'all' || typeOf(r) === f.t) && (!f.q || plain(text(r)).includes(f.q) || when(r.at).includes(f.q)));
+    document.getElementById('acount').textContent = `${rows.length} esemény (az utolsó ${log.length}-ból)`;
+    document.getElementById('al').innerHTML = rows.map((r) => `<div class="entry ${r.action === 'login.fail' ? 'dim' : ''}"><div class="meta"><b>${text(r)}</b><span>${when(r.at)}</span></div></div>`).join('') || '<p class="empty">Nincs találat.</p>';
+  };
+  document.getElementById('aq').oninput = (e) => { f.q = e.target.value.trim().toLowerCase(); draw(); };
+  document.querySelectorAll('[data-at]').forEach((b) => (b.onclick = () => { f.t = b.dataset.at; document.querySelectorAll('[data-at]').forEach((x) => x.setAttribute('aria-pressed', x === b)); draw(); }));
+  draw();
 }
 
 /* ---------- útvonalak ---------- */

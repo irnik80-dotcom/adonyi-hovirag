@@ -89,7 +89,7 @@ textarea.input{min-height:72px;resize:vertical}
 .row .input{flex:1;min-width:0}
 .set-item{display:flex;align-items:center;gap:10px;background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:10px 14px;margin-top:8px}
 .set-item span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}
-.set-item.off span{color:var(--ink-2);text-decoration:line-through}
+.set-item.off .top span{color:var(--ink-2);text-decoration:line-through}
 #toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(96px + env(safe-area-inset-bottom));background:var(--ink);color:var(--bg);padding:12px 18px;border-radius:14px;font-weight:600;font-size:14px;z-index:20;max-width:90vw}
 @media (prefers-reduced-motion:no-preference){.card{transition:transform .2s}.card:hover{transform:translateY(-1px)}}
 
@@ -225,3 +225,13 @@ input[type=date].input::-webkit-date-and-time-value{text-align:left;margin:0}
 .day.sel.today{outline-color:var(--ink)}
 .day.sel i{background:var(--coral);box-shadow:0 0 0 2px var(--green)}
 .day i{top:2px;right:2px;bottom:auto;min-width:17px;height:17px;font-size:10.5px}
+
+/* v5 */
+.todayoff{border-color:var(--green)}
+.seg.slim button{padding:8px 6px;font-size:13px}
+.inact{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}
+.btn.danger{background:var(--neg-fg);color:#fff;border:0}
+.btn.ghost.danger{background:none;color:var(--neg-fg);border:1px solid var(--neg-fg)}
+.btn.danger:disabled{opacity:.4}
+.set-item.col .warnbox{margin:0}
+.set-item.col .warnbox .check{padding:10px 0}
