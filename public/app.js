@@ -66,14 +66,15 @@ const ICONS = {
   back: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg>',
   plus: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>',
   search: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>',
+  flowerArt: '<svg class="art" viewBox="20 18 90 100" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" aria-hidden="true"><path d="M50 114C47 84 38 58 24 34C42 52 52 82 54 114Z" fill="currentColor"/><path d="M54 114C58 86 70 66 84 46C72 68 62 90 58 114Z" fill="currentColor" opacity=".6"/><path d="M54 114C52 76 54 44 64 30C70 22 80 22 80 36"/><path d="M80 40C72 52 68 66 72 82C80 70 84 54 80 40Z" fill="var(--petal)" stroke="none"/><path d="M80 40C66 46 56 62 56 78C68 72 78 58 80 40Z" fill="var(--petal)" stroke="none" opacity=".85"/><path d="M80 40C94 46 104 62 104 78C92 72 82 58 80 40Z" fill="var(--petal)" stroke="none" opacity=".85"/></svg>',
   flower: '<svg viewBox="20 18 90 100"><path d="M50 114C47 84 38 58 24 34C42 52 52 82 54 114Z" fill="currentColor"/><path d="M54 114C58 86 70 66 84 46C72 68 62 90 58 114Z" fill="currentColor" opacity=".7"/><path d="M54 114C52 76 54 44 64 30C70 22 80 22 80 36" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round"/><ellipse cx="80" cy="38" rx="3.6" ry="4.6" fill="currentColor"/><path d="M80 40C72 52 68 66 72 82C80 70 84 54 80 40Z" fill="currentColor"/><path d="M80 40C66 46 56 62 56 78C68 72 78 58 80 40Z" fill="currentColor" opacity=".8"/><path d="M80 40C94 46 104 62 104 78C92 72 82 58 80 40Z" fill="currentColor" opacity=".8"/><path d="M70 70C74 78 86 78 90 70C86 74 74 74 70 70Z" fill="currentColor" opacity=".55"/></svg>',
 };
 
 const nav = (on) => `<nav class="nav">
-  <a href="#/" class="${on === 'list' ? 'on' : ''}">${ICONS.home}Áttekintés</a>
-  <a href="#/naptar" class="${on === 'cal' ? 'on' : ''}">${ICONS.cal}Naptár</a>
-  <a href="#/kimutatas" class="${on === 'rep' ? 'on' : ''}">${ICONS.doc}Kimutatás</a>
-  <a href="#/beallitasok" class="${on === 'set' ? 'on' : ''}">${ICONS.gear}Beállítások</a></nav>`;
+  <a href="#/" class="${on === 'list' ? 'on' : ''}">Áttekintés</a>
+  <a href="#/naptar" class="${on === 'cal' ? 'on' : ''}">Naptár</a>
+  <a href="#/kimutatas" class="${on === 'rep' ? 'on' : ''}">Kimutatás</a>
+  <a href="#/beallitasok" class="${on === 'set' ? 'on' : ''}">Beállítások</a></nav>`;
 
 const KIND = { opening: 'Nyitó egyenleg', credit: 'Túlóra', use: 'Szabadidő', reversal: 'Sztornó' };
 
@@ -144,18 +145,21 @@ function viewLogin() {
 function statusLine(w) {
   if (w.signed_to) {
     return w.unsigned
-      ? `<span class="status warn">${w.unsigned} új tétel az aláírás óta</span>`
-      : `<span class="status ok">Aláírva: ${dotted(w.signed_to)}-ig</span>`;
+      ? `<span class="status warn">${w.unsigned} új tétel</span>`
+      : `<span class="status ok">Aláírva: ${shortDate(w.signed_to)}-ig</span>`;
   }
-  return w.last_date ? '<span class="status warn">Még nincs aláírt kimutatás</span>' : '';
+  return w.last_date ? '<span class="status warn">Nincs aláírva</span>' : '';
 }
+
+const hmm = (m) => `${m < 0 ? '−' : ''}${Math.floor(Math.abs(m) / 60)}:${pad(Math.abs(m) % 60)}`;
+const getSort = () => { try { return localStorage.getItem('hovirag_sort') || 'bal'; } catch { return 'bal'; } };
 
 async function viewList() {
   $app.innerHTML = '<p class="empty">Betöltés…</p>';
   const { workers, upcoming, today_off: todayOff, groups, warn_high_min: warnHigh, prev_month_end: prevEnd } = await api('/workers');
   const active = workers.filter(isAct);
   const total = active.reduce((s, w) => s + w.balance, 0);
-  const f = { g: 0 };
+  const f = { g: 0, sort: getSort() };
   const warns = [];
   const missing = active.filter((w) => w.unsigned_old > 0);
   if (missing.length) warns.push(`<a href="#/kimutatas?w=all&from=${prevEnd.slice(0, 8)}01&to=${prevEnd}"><b>${missing.length} dolgozónak</b> nincs aláírt kimutatása ${dotted(prevEnd)}-ig</a>`);
@@ -165,12 +169,23 @@ async function viewList() {
   const soon = iso(new Date(Date.now() + 14 * 864e5));
   parked.filter((w) => w.park_until && w.park_until <= soon).forEach((w) => warns.push(`<a href="#/dolgozo/${w.id}"><b>${esc(w.name)}</b>: ${w.park_until < today() ? 'a parkoltatás lejárt' : 'hamarosan visszatér'} (${dotted(w.park_until)})</a>`));
   const usedGroups = groups.filter((g) => active.some((w) => gidsOf(w).includes(g.id)));
+  const groupName = (w) => groups.find((g) => g.id === gidsOf(w)[0])?.name || '';
+
+  // munkakörök aránya a felhalmozott időben
+  const pos = (ws) => ws.reduce((s, w) => s + Math.max(w.balance, 0), 0);
+  const segs = usedGroups.map((g) => ({ name: g.name, v: pos(active.filter((w) => gidsOf(w).includes(g.id))) }));
+  const rest = pos(active.filter((w) => !gidsOf(w).length));
+  if (usedGroups.length && rest > 0) segs.push({ name: 'Nincs munkakör', v: rest });
+  const segTotal = segs.reduce((s, x) => s + x.v, 0);
+  const segHtml = usedGroups.length && segTotal > 0 ? `<div class="seg-bar">${segs.filter((x) => x.v > 0).map((x, i) => `<i style="width:${(x.v / segTotal) * 100}%;background:var(--s${(i % 3) + 1})"></i>`).join('')}</div>
+    <div class="leg">${segs.filter((x) => x.v > 0).map((x, i) => `<span style="--c:var(--s${(i % 3) + 1})">${esc(x.name)} ${hmm(x.v)}</span>`).join('')}</div>` : '';
+
   $app.innerHTML = `
-    <div class="hello"><div><small>Adonyi Hóvirág Óvoda</small><h1>Áttekintés</h1></div></div>
-    <div class="hero"><small>Összes felhalmozott szabadidő</small>
-      <div class="big">${bigTime(total)}</div>
-      <div class="pills"><span class="pill">${active.length} dolgozó</span>${upcoming.length ? `<span class="pill">${upcoming.length} tervezett szabadidő</span>` : ''}</div>${ICONS.flower}</div>
-    ${warns.length ? `<details class="warnlist" ${warns.length <= 3 ? 'open' : ''}><summary>${warns.length} figyelmeztetés</summary>${warns.join('')}</details>` : ''}
+    <div class="head"><div><small>Adonyi Hóvirág Óvoda</small><h1>Áttekintés</h1></div>${ICONS.flowerArt}</div>
+    <div class="hero"><div class="top"><span>Összesen felhalmozva</span><div class="big">${bigTime(total)}</div></div>
+      ${segHtml}
+      <div class="pills"><span class="pill">${active.length} dolgozó</span>${upcoming.length ? `<span class="pill">${upcoming.length} tervezett szabadidő</span>` : ''}</div></div>
+    ${warns.length ? `<details class="warnlist" ${warns.length === 1 ? 'open' : ''}><summary>${warns.length} figyelmeztetés</summary>${warns.join('')}</details>` : ''}
     ${todayOff.length ? `<div class="upcoming todayoff"><span class="label">Ma szabadidőn</span>${todayOff.map((u) => `
       <a href="#/dolgozo/${u.worker_id}"><b>${fmt(-u.minutes)}</b><span>${esc(u.name)}${u.note ? ` · ${esc(u.note)}` : ''}</span><em></em></a>`).join('')}</div>` : ''}
     ${upcoming.length ? `<div class="upcoming"><span class="label">Közelgő szabadidő</span>${upcoming.map((u) => `
@@ -178,25 +193,35 @@ async function viewList() {
     ${queueBanner()}
     <label class="search">${ICONS.search}<input id="q" type="search" placeholder="Név keresése" aria-label="Név keresése"></label>
     ${usedGroups.length ? `<div class="quick chips" id="gf"><button type="button" data-g="0" aria-pressed="true">Mindenki</button>${usedGroups.map((g) => `<button type="button" data-g="${g.id}">${esc(g.name)}</button>`).join('')}</div>` : ''}
-    <div class="list" id="l"></div>
-    ${parked.length ? `<details class="parked"><summary>Parkoltatottak (${parked.length})</summary><div class="list">${parked.map((w) => `
-      <a class="card muted" href="#/dolgozo/${w.id}"><div class="ini">${esc(initials(w.name))}</div>
-      <div class="who"><b>${esc(w.name)}</b><span>${esc(w.park_note || 'Parkoltatva')}${w.park_until ? ` · visszatér: ${dotted(w.park_until)}` : ''}</span></div>
-      <div class="bal ${balClass(w.balance)}">${fmt(w.balance)}</div></a>`).join('')}</div></details>` : ''}
+    <div class="lab"><span>Egyenlegek${warnHigh > 0 ? ` · jelölő: ${Math.round(warnHigh / 60)} óra` : ''}</span>
+      <span class="sortseg"><button type="button" data-sort="bal" aria-pressed="${f.sort === 'bal'}">Egyenleg</button><button type="button" data-sort="name" aria-pressed="${f.sort === 'name'}">Név</button></span></div>
+    <div class="items" id="l"></div>
+    ${parked.length ? `<details class="parked"><summary>Parkoltatottak (${parked.length})</summary><div class="items">${parked.map((w) => `
+      <a class="item muted" href="#/dolgozo/${w.id}"><div class="h"><span>${esc(w.name)}</span><em>${fmt(w.balance)}</em></div>
+      <div class="sub"><span>${esc(w.park_note || 'Parkoltatva')}${w.park_until ? ` · visszatér: ${dotted(w.park_until)}` : ''}</span></div></a>`).join('')}</div></details>` : ''}
     <a class="fab" href="#/uj">${ICONS.plus}Új tétel</a>${nav('list')}`;
   bindQueue();
+  const scale = warnHigh > 0 ? warnHigh : Math.max(60, ...active.map((w) => Math.abs(w.balance)));
   const draw = () => {
     const q = document.getElementById('q').value.trim().toLowerCase();
-    const rows = active.filter((w) => w.name.toLowerCase().includes(q) && (!f.g || gidsOf(w).includes(f.g)));
-    document.getElementById('l').innerHTML = rows.length ? rows.map((w) => `
-      <a class="card" href="#/dolgozo/${w.id}"><div class="ini">${esc(initials(w.name))}</div>
-      <div class="who"><b>${esc(w.name)}</b><span>${w.last_date ? `Utolsó: ${fmt(w.last_minutes, true)} · ${shortDate(w.last_date)}` : 'Még nincs tétel'}</span>${statusLine(w)}</div>
-      <div class="bal ${balClass(w.balance)}">${fmt(w.balance)}</div></a>`).join('')
-      : `<p class="empty">${active.length ? 'Nincs találat.' : 'Még nincs dolgozó. A Beállításokban fel tudod venni őket.'}</p>`;
+    const rows = active.filter((w) => w.name.toLowerCase().includes(q) && (!f.g || gidsOf(w).includes(f.g)))
+      .sort((x, y) => (f.sort === 'bal' ? y.balance - x.balance || x.name.localeCompare(y.name, 'hu') : x.name.localeCompare(y.name, 'hu')));
+    document.getElementById('l').innerHTML = rows.length ? rows.map((w) => {
+      const cls = w.balance < 0 ? 'neg' : warnHigh > 0 && w.balance >= warnHigh ? 'hi' : '';
+      const width = w.balance === 0 ? 0 : Math.min(100, Math.max(3, (Math.abs(w.balance) / scale) * 100));
+      const grp = groupName(w);
+      return `<a class="item" href="#/dolgozo/${w.id}"><div class="h"><span>${esc(w.name)}</span><em class="${w.balance < 0 ? 'neg' : ''}">${fmt(w.balance)}</em></div>
+        <div class="track"><s class="${cls}" style="width:${width}%"></s>${warnHigh > 0 ? '<u></u>' : ''}</div>
+        <div class="sub"><span>${grp ? `${esc(grp)} · ` : ''}${w.last_date ? `utolsó: ${shortDate(w.last_date)}` : 'még nincs tétel'}</span>${statusLine(w)}</div></a>`;
+    }).join('') : `<p class="empty">${active.length ? 'Nincs találat.' : 'Még nincs dolgozó. A Beállításokban fel tudod venni őket.'}</p>`;
   };
   document.getElementById('q').oninput = draw;
   document.querySelectorAll('[data-g]').forEach((b) => (b.onclick = () => {
     f.g = +b.dataset.g; document.querySelectorAll('[data-g]').forEach((x) => x.setAttribute('aria-pressed', x === b)); draw();
+  }));
+  document.querySelectorAll('[data-sort]').forEach((b) => (b.onclick = () => {
+    f.sort = b.dataset.sort; try { localStorage.setItem('hovirag_sort', f.sort); } catch { /* nem baj */ }
+    document.querySelectorAll('[data-sort]').forEach((x) => x.setAttribute('aria-pressed', x === b)); draw();
   }));
   draw();
 }
@@ -346,14 +371,13 @@ async function viewWorker(id) {
   const f = { type: 'all', range: 'all', year: 'edu' };
   const isPlanned = (e) => e.date > srvToday && !e.reversed && e.kind === 'use';
   $app.innerHTML = `
-    <div class="topbar"><a class="back" href="#/" aria-label="Vissza">${ICONS.back}</a><h2>${esc(worker.name)}</h2></div>
+    <div class="topbar withart"><a class="back" href="#/" aria-label="Vissza">${ICONS.back}</a><h2>${esc(worker.name)}</h2></div>${ICONS.flowerArt}
     ${myGroups.length ? `<div class="quick" style="margin:8px 0 0">${myGroups.map((g) => `<span class="gtag">${esc(g.name)}</span>`).join('')}</div>` : ''}
     ${worker.active === 2 ? `<div class="banner park"><b>Parkoltatva</b>${worker.park_note ? `: ${esc(worker.park_note)}` : ''}<br><small>${dotted(worker.park_since)} óta${worker.park_until ? ` · várható visszatérés: ${dotted(worker.park_until)}` : ''} A listákban és kimutatásokban nem szerepel.</small>
       <button class="btn small" id="unpark" type="button" style="margin-top:8px">Visszahozás aktívként</button></div>` : ''}
     ${worker.active === 0 ? '<div class="banner park"><b>Kilépett dolgozó</b><br><small>A listákban és kimutatásokban nem szerepel. Törölni a Beállításokban lehet.</small></div>' : ''}
-    <div class="hero"><small>Aktuális egyenleg</small>
-      <div class="big">${bigTime(worker.balance)}</div>
-      ${worker.planned ? `<div class="pills"><span class="pill">Tervezett: ${fmt(worker.planned, true)}</span></div>` : ''}${ICONS.flower}</div>
+    <div class="hero"><div class="top"><span>Aktuális egyenleg</span><div class="big">${bigTime(worker.balance)}</div></div>
+      ${worker.planned ? `<div class="pills"><span class="pill">Tervezett: ${fmt(worker.planned, true)}</span></div>` : ''}</div>
     ${worker.active === 1 ? `<a class="btn" href="#/uj?w=${worker.id}" style="text-decoration:none">+ Új tétel ennek a dolgozónak</a>` : ''}
     <div class="row" style="margin-top:10px"><a class="btn ghost small" style="flex:1;text-align:center;text-decoration:none" href="#/kimutatas?w=${worker.id}">Kimutatás</a>
       <button class="btn ghost small" style="flex:1" id="ren" type="button">Átnevezés</button></div>

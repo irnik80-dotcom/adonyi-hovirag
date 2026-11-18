@@ -247,3 +247,94 @@ input[type=date].input::-webkit-date-and-time-value{text-align:left;margin:0}
 .stl.st2{background:var(--surface-2);color:var(--ink)}
 .parkf{display:flex;flex-direction:column}
 .parkf .label{margin-bottom:6px}
+
+/* ================= v7 · Sávok (új megjelenés) ================= */
+:root{
+  --bg:#E8F0E5;--surface:#FFFFFF;--surface-2:#DCE8D9;--ink:#12261D;--ink-2:#5D7064;--line:#D3E2D0;
+  --green:#12382A;--green-ink:#EAF5E4;--lime:#CFEA6A;--coral:#E0553A;--pill:rgba(255,255,255,.16);
+  --track:#D3E2D0;--bar:#2B7A58;--bar-hi:#E8793F;--neg:#E0553A;--hero:#12382A;--hero-ink:#EAF5E4;
+  --s1:#CFEA6A;--s2:#8CC79A;--s3:#F4B8A0;--petal:#FFFFFF;
+  --font-d:"Manrope","Plus Jakarta Sans",system-ui,sans-serif;
+  --font-b:"Manrope","Plus Jakarta Sans",system-ui,sans-serif;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#0B1A13;--surface:#13261C;--surface-2:#1B3426;--ink:#E6F2E8;--ink-2:#93A99A;--line:#1F3A2B;
+  --green:#CFEA6A;--green-ink:#10241A;--pill:rgba(16,36,26,.14);
+  --track:#1F3A2B;--bar:#6FD19B;--bar-hi:#FFA76B;--neg:#FF8A70;--hero:#CFEA6A;--hero-ink:#10241A;
+  --s1:#12382A;--s2:#3F8F63;--s3:#E0553A;--petal:#E8F2E6}}
+body{font-family:var(--font-b);font-size:15px}
+#app{position:relative}
+h1,h2,.hello h1{font-weight:800;letter-spacing:-.02em}
+
+/* fej + kis hóvirág-rajz */
+.head{display:flex;justify-content:space-between;align-items:flex-start;position:relative;min-height:72px}
+.head small{display:block;color:var(--ink-2);font-size:13px;font-weight:600}
+.head h1{font-size:30px;margin:2px 0 0}
+.art{position:absolute;right:6px;top:-2px;width:78px;height:auto;color:var(--hero);pointer-events:none;z-index:0}
+.topbar.withart{padding-right:64px}
+.topbar.withart + .art{top:2px;width:64px}
+
+/* összesítő kártya */
+.hero{position:relative;z-index:1;margin-top:8px;border-radius:22px;background:var(--hero);color:var(--hero-ink);padding:16px 16px 14px}
+.hero .top{display:flex;flex-direction:column;gap:2px}
+.hero .top span{font-size:12.5px;font-weight:600;opacity:.8}
+.hero .big{font-family:var(--font-d);font-weight:800;font-size:38px;letter-spacing:-.03em;line-height:1.1;white-space:nowrap;margin:0}
+.hero .big span{font-size:17px;opacity:.75;margin:0 5px 0 2px}
+.hero svg{display:none}
+.hero .pills{margin-top:12px}
+.seg-bar{display:flex;height:14px;border-radius:7px;overflow:hidden;gap:2px;margin-top:12px}
+.seg-bar i{display:block;min-width:4px}
+.hero .leg{display:flex;gap:6px 12px;flex-wrap:wrap;margin-top:8px;font-size:11.5px;font-weight:600}
+.hero .leg span::before{content:"";display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:5px;background:var(--c)}
+
+/* egyenleg-sávok */
+.lab{display:flex;justify-content:space-between;align-items:center;gap:8px;margin:20px 0 8px;font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-2)}
+.sortseg{display:inline-flex;background:var(--surface);border-radius:10px;padding:3px;gap:2px}
+.sortseg button{border:0;background:none;padding:5px 10px;border-radius:8px;font-size:11px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:var(--ink-2)}
+.sortseg button[aria-pressed=true]{background:var(--ink);color:var(--bg)}
+.items{display:flex;flex-direction:column;gap:8px}
+.item{display:block;background:var(--surface);border-radius:16px;padding:11px 14px 12px;text-decoration:none;color:inherit;border:0}
+.item .h{display:flex;justify-content:space-between;align-items:baseline;gap:10px;font-weight:700;font-size:15px}
+.item .h span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.item .h em{font-style:normal;font-weight:800;font-variant-numeric:tabular-nums;white-space:nowrap}
+.item .h em.neg{color:var(--neg)}
+.item .track{position:relative;height:10px;border-radius:5px;background:var(--track);margin-top:9px}
+.item .track s{position:absolute;left:0;top:0;bottom:0;border-radius:5px;background:var(--bar);text-decoration:none;min-width:0}
+.item .track s.hi{background:var(--bar-hi)}
+.item .track s.neg{background:var(--neg)}
+.item .track u{position:absolute;right:0;top:-3px;bottom:-3px;width:2px;background:var(--ink);opacity:.45}
+.item .sub{display:flex;justify-content:space-between;gap:10px;margin-top:6px;font-size:11.5px;font-weight:600;color:var(--ink-2)}
+.item .sub .status{font-size:11.5px;text-align:right}
+.item.muted{opacity:.85;border:1px dashed var(--line)}
+.item.muted .h em{color:var(--ink-2)}
+
+/* többi felület: lágyabb, laposabb */
+.search{border:0;background:var(--surface)}
+.upcoming,.yearcard,.queue,.bulk{border:0;background:var(--surface);border-radius:18px}
+.entry{border:0;background:var(--surface);border-radius:16px}
+.entry.planned{border:1px dashed var(--line)}
+.input,select.input,textarea.input{border:1.5px solid var(--line);background:var(--surface);border-radius:14px}
+.step,.set-item,.checks{border:0;background:var(--surface)}
+.card{border:0}
+.quick button{border:0;background:var(--surface)}
+.chips button[aria-pressed=true]{background:var(--ink);color:var(--bg)}
+.seg{background:var(--surface)}
+.seg button[aria-pressed=true]{background:var(--ink);color:var(--bg)}
+.btn{background:var(--ink);color:var(--bg);border-radius:16px}
+.btn.ghost{background:var(--surface);color:var(--ink);border:0}
+.warnlist{border-radius:18px}
+
+/* alsó menü: lapos, szöveges */
+.nav{left:0;right:0;transform:none;bottom:0;width:auto;max-width:none;margin:0 auto;border:0;border-radius:22px 22px 0 0;background:var(--surface);padding:6px 8px calc(8px + env(safe-area-inset-bottom));box-shadow:0 -10px 30px -18px rgba(0,0,0,.35)}
+@media (min-width:600px){.nav{left:50%;transform:translateX(-50%);width:560px;}}
+.nav a{flex:1;align-items:center;justify-content:center;padding:12px 4px 10px;border-radius:14px;font-size:12.5px;font-weight:800;color:var(--ink-2);position:relative}
+.nav a.on{background:none;color:var(--bar)}
+.nav a.on::before{content:"";position:absolute;top:2px;left:30%;right:30%;height:3px;border-radius:2px;background:var(--bar)}
+.fab{background:var(--ink);color:var(--bg);border-radius:14px;box-shadow:0 12px 24px -12px rgba(0,0,0,.5);bottom:calc(72px + env(safe-area-inset-bottom));padding:13px 18px;font-weight:800}
+.savebar{padding-bottom:calc(12px + env(safe-area-inset-bottom))}
+
+/* a nyomtatott kimutatás marad a régi, papírra szánt kinézettel */
+.sheet{font-family:"Plus Jakarta Sans",system-ui,sans-serif}
+.sheet h3,.sheet .org b,.sheet .total b{font-family:"Bricolage Grotesque","Plus Jakarta Sans",system-ui,sans-serif}
+
+.item .h em.neg{background:none;color:var(--neg);padding:0;border-radius:0}
