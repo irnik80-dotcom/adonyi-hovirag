@@ -106,6 +106,26 @@ export default {
         return json({ id: w.id }, 201);
       }
 
+      if (path === '/api/backup' && method === 'GET') {
+        const day = new Date().toISOString().slice(0, 10);
+        const workers = (await env.DB.prepare('SELECT * FROM workers ORDER BY id').all()).results;
+        const entries = (await env.DB.prepare('SELECT * FROM entries ORDER BY id').all()).results;
+        if (url.searchParams.get('format') === 'csv') {
+          const names = Object.fromEntries(workers.map((w) => [w.id, w.name]));
+          const cell = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+          const KIND = { opening: 'Nyitó egyenleg', credit: 'Túlóra', use: 'Szabadidő', reversal: 'Sztornó' };
+          const lines = [['Dolgozó', 'Dátum', 'Perc', 'Típus', 'Megjegyzés', 'Rögzítve'].map(cell).join(';')].concat(
+            entries.map((e) => [names[e.worker_id], e.date, e.minutes, KIND[e.kind], e.note, e.created_at].map(cell).join(';')));
+          return new Response('\ufeff' + lines.join('\r\n'), { headers: {
+            'content-type': 'text/csv; charset=utf-8', 'cache-control': 'no-store',
+            'content-disposition': `attachment; filename="hovirag-tetelek-${day}.csv"` } });
+        }
+        const audit = (await env.DB.prepare('SELECT * FROM audit ORDER BY id').all()).results;
+        return new Response(JSON.stringify({ exported: new Date().toISOString(), workers, entries, audit }, null, 1), { headers: {
+          'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store',
+          'content-disposition': `attachment; filename="hovirag-mentes-${day}.json"` } });
+      }
+
       if (path === '/api/report' && method === 'GET') {
         const from = url.searchParams.get('from'), to = url.searchParams.get('to');
         const only = url.searchParams.get('worker');

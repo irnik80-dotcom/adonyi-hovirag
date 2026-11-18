@@ -158,6 +158,10 @@ async function viewWorker(id) {
     <div class="hero"><small>Aktuális egyenleg</small>
       <div class="big">${worker.balance < 0 ? '−' : ''}${Math.floor(Math.abs(worker.balance) / 60)}<span>ó</span>${pad(Math.abs(worker.balance) % 60)}<span>p</span></div>${ICONS.flower}</div>
     <a class="btn" href="#/uj?w=${worker.id}" style="text-decoration:none">+ Új tétel ennek a dolgozónak</a>
+    <div class="row" style="margin-top:10px"><a class="btn ghost small" style="flex:1;text-align:center;text-decoration:none" href="#/kimutatas?w=${worker.id}">Kimutatás</a>
+      <button class="btn ghost small" style="flex:1" id="ren" type="button">Átnevezés</button></div>
+    <form id="renf" class="row" style="margin-top:10px" hidden><input class="input" id="newname" maxlength="80" value="${esc(worker.name)}" aria-label="Új név" required>
+      <button class="btn small" type="submit">Mentés</button></form>
     <div class="entries" id="e">${entries.length ? entries.map((e) => `
       <div class="entry ${e.kind === 'reversal' || e.reversed ? 'dim' : ''}">
         <div class="bal ${balClass(e.minutes)}">${fmt(e.minutes, true)}</div>
@@ -165,6 +169,12 @@ async function viewWorker(id) {
         ${e.kind !== 'reversal' && !e.reversed ? `<button class="undo" data-rev="${e.id}">Sztornó</button>` : ''}
       </div>`).join('') : '<p class="empty">Még nincs tétel.</p>'}</div>
     <p class="tabs-note">A tételek nem törölhetők, hibát sztornóval lehet javítani.</p>${nav('')}`;
+  document.getElementById('ren').onclick = () => { const f = document.getElementById('renf'); f.hidden = !f.hidden; if (!f.hidden) document.getElementById('newname').focus(); };
+  document.getElementById('renf').onsubmit = async (e) => {
+    e.preventDefault();
+    try { await api(`/workers/${id}`, { method: 'PATCH', body: { name: document.getElementById('newname').value } }); toast('Átnevezve'); viewWorker(id); }
+    catch (err) { toast(err.message); }
+  };
   document.querySelectorAll('[data-rev]').forEach((b) => (b.onclick = async () => {
     if (b.dataset.armed !== '1') { b.dataset.armed = '1'; b.textContent = 'Biztos?'; setTimeout(() => { b.dataset.armed = ''; b.textContent = 'Sztornó'; }, 3000); return; }
     try { await api(`/entries/${b.dataset.rev}/reverse`, { method: 'POST', body: {} }); toast('Sztornózva'); viewWorker(id); }
@@ -185,6 +195,10 @@ async function viewSettings() {
     <div class="field"><span class="label">Dolgozók</span>${workers.map((w) => `
       <div class="set-item ${w.active ? '' : 'off'}"><span>${esc(w.name)}</span>
       <button class="btn ghost small" data-toggle="${w.id}" data-active="${w.active ? 0 : 1}">${w.active ? 'Inaktívvá tesz' : 'Aktiválás'}</button></div>`).join('')}</div>
+    <div class="field"><span class="label">Adatok mentése</span>
+      <a class="btn ghost" style="text-decoration:none;margin-top:0" href="/api/backup?format=csv" download>Táblázat letöltése (Excel, CSV)</a>
+      <a class="btn ghost" style="text-decoration:none" href="/api/backup" download>Teljes mentés letöltése (JSON)</a>
+      <p class="tabs-note">Havonta egyszer érdemes letölteni és elmenteni egy biztonságos helyre.</p></div>
     <div class="field"><button class="btn ghost" id="out" type="button">Kijelentkezés</button></div>${nav('set')}`;
   document.getElementById('f').onsubmit = async (e) => {
     e.preventDefault();
@@ -214,14 +228,15 @@ function presetRange(name) {
   return [iso(mon), iso(sun)];
 }
 
-async function viewReportForm() {
+async function viewReportForm(q) {
   const { workers } = await api('/workers');
   const active = workers.filter((w) => w.active);
   const [f0, t0] = presetRange('month');
+  const pre = q && q.get('w');
   $app.innerHTML = `
     <div class="topbar"><h2>Kimutatás</h2></div>
     <form id="f">
-    <div class="field"><label for="w">Dolgozó</label><select class="input" id="w"><option value="all">Mindenki (${active.length} oldal)</option>${active.map((w) => `<option value="${w.id}">${esc(w.name)}</option>`).join('')}</select></div>
+    <div class="field"><label for="w">Dolgozó</label><select class="input" id="w"><option value="all">Mindenki (${active.length} oldal)</option>${active.map((w) => `<option value="${w.id}"${String(w.id) === pre ? ' selected' : ''}>${esc(w.name)}</option>`).join('')}</select></div>
     <div class="field"><span class="label">Időszak</span><div class="quick" id="pre" style="margin-top:0">
       <button type="button" data-p="week">Ez a hét</button><button type="button" data-p="lastweek">Múlt hét</button>
       <button type="button" data-p="month">Ez a hónap</button><button type="button" data-p="lastmonth">Múlt hónap</button></div></div>
@@ -279,7 +294,7 @@ async function route() {
     if (path === '/belepes') return viewLogin();
     $app.classList.toggle('wide', path === '/kimutatas/nyomtatas');
     if (path === '/uj') return await viewNew(q.get('w'));
-    if (path === '/kimutatas') return await viewReportForm();
+    if (path === '/kimutatas') return await viewReportForm(q);
     if (path === '/kimutatas/nyomtatas') return await viewReportPrint(q);
     if (path === '/beallitasok') return await viewSettings();
     const m = path.match(/^\/dolgozo\/(\d+)$/);
