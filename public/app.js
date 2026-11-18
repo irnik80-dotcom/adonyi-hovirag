@@ -411,7 +411,7 @@ async function viewSettings() {
     <div class="topbar"><h2>Beállítások</h2></div>
     <form id="f"><div class="field"><label for="nm">Új dolgozó</label>
       <input class="input" id="nm" placeholder="Teljes név" maxlength="80" required></div>
-      ${groups.length ? `<div class="field"><span class="label">Csoport</span><div class="quick chips" id="ng" style="margin-top:0">${groups.map((g) => `<button type="button" data-ng="${g.id}" aria-pressed="false">${esc(g.name)}</button>`).join('')}</div></div>` : ''}
+      ${groups.length ? `<div class="field"><span class="label">Munkakör</span><div class="quick chips" id="ng" style="margin-top:0">${groups.map((g) => `<button type="button" data-ng="${g.id}" aria-pressed="false">${esc(g.name)}</button>`).join('')}</div></div>` : ''}
       <div class="field"><span class="label">Nyitó egyenleg a papírról</span><div class="row">
         <input class="input" id="oh" type="number" inputmode="numeric" min="0" placeholder="óra" aria-label="Nyitó óra">
         <input class="input" id="om" type="number" inputmode="numeric" min="0" max="59" placeholder="perc" aria-label="Nyitó perc"></div></div>
@@ -420,10 +420,10 @@ async function viewSettings() {
       <div class="set-item col ${w.active ? '' : 'off'}"><div class="top"><span>${esc(w.name)}</span>
       <button class="btn ghost small" data-toggle="${w.id}" data-active="${w.active ? 0 : 1}">${w.active ? 'Inaktívvá tesz' : 'Aktiválás'}</button></div>
       ${groups.length ? `<div class="quick chips" data-wg="${w.id}">${groups.map((g) => `<button type="button" data-g="${g.id}" aria-pressed="${gidsOf(w).includes(g.id)}">${esc(g.name)}</button>`).join('')}</div>` : ''}</div>`).join('')}</div>
-    <div class="field"><span class="label">Csoportok</span>
+    <div class="field"><span class="label">Munkakörök</span>
       ${groups.map((g) => `<div class="set-item"><span>${esc(g.name)}</span><button class="btn ghost small" data-delgrp="${g.id}">Törlés</button></div>`).join('')}
-      <form id="gf2" class="row" style="margin-top:8px"><input class="input" id="gn" maxlength="60" placeholder="Új csoport (pl. Konyha)" required><button class="btn small" type="submit">Hozzáad</button></form>
-      <p class="tabs-note">A csoport törlése a dolgozókat nem törli, csak a hozzárendelést.</p></div>
+      <form id="gf2" class="row" style="margin-top:8px"><input class="input" id="gn" maxlength="60" placeholder="Új munkakör (pl. Konyhai dolgozó)" required><button class="btn small" type="submit">Hozzáad</button></form>
+      <p class="tabs-note">Egy dolgozónak egy munkaköre van, ami bármikor átállítható. A munkakör törlése a dolgozókat nem törli. A korábbi kimutatásokat nem érinti, az új kimutatások mindig a jelenlegi munkakört veszik alapul.</p></div>
     <div class="field"><span class="label">Figyelmeztetés magas egyenlegre</span>
       <form id="wf" class="row"><input class="input" id="wh" type="number" inputmode="numeric" min="0" max="1000" value="${Math.round(warnHigh / 60)}" aria-label="Óra"><button class="btn small" type="submit">Mentés</button></form>
       <p class="tabs-note">Ennyi óra felett az Áttekintésen figyelmeztetést látsz. 0 = kikapcsolva.</p></div>
@@ -445,7 +445,8 @@ async function viewSettings() {
     <div class="field"><button class="btn ghost" id="out" type="button">Kijelentkezés</button></div>${nav('set')}`;
   const $ = (id) => document.getElementById(id);
   document.querySelectorAll('[data-ng]').forEach((b) => (b.onclick = () => {
-    const v = +b.dataset.ng; newGroups.has(v) ? newGroups.delete(v) : newGroups.add(v); b.setAttribute('aria-pressed', newGroups.has(v));
+    const v = +b.dataset.ng; const was = newGroups.has(v); newGroups.clear(); if (!was) newGroups.add(v);
+    document.querySelectorAll('[data-ng]').forEach((x) => x.setAttribute('aria-pressed', newGroups.has(+x.dataset.ng)));
   }));
   $('f').onsubmit = async (e) => {
     e.preventDefault();
@@ -457,8 +458,9 @@ async function viewSettings() {
     await api(`/workers/${b.dataset.toggle}`, { method: 'PATCH', body: { active: b.dataset.active === '1' } }); viewSettings();
   }));
   document.querySelectorAll('[data-wg] [data-g]').forEach((b) => (b.onclick = async () => {
-    b.setAttribute('aria-pressed', b.getAttribute('aria-pressed') !== 'true');
     const wrap = b.closest('[data-wg]');
+    const was = b.getAttribute('aria-pressed') === 'true';
+    wrap.querySelectorAll('[data-g]').forEach((x) => x.setAttribute('aria-pressed', x === b && !was));
     const group_ids = [...wrap.querySelectorAll('[aria-pressed=true]')].map((x) => +x.dataset.g);
     try { await api(`/workers/${wrap.dataset.wg}/groups`, { method: 'PUT', body: { group_ids } }); } catch (err) { toast(err.message); viewSettings(); }
   }));
@@ -516,7 +518,7 @@ async function viewReportForm(q) {
       <button type="button" data-mode="sheets" aria-pressed="true">Dolgozónként (aláírásra)</button>
       <button type="button" data-mode="summary" aria-pressed="false">Összesítő lista</button></div></div>
     <div class="field"><label for="w">Kiknek</label><select class="input" id="w"><option value="all">Mindenki (${active.length} dolgozó)</option>
-      ${useGroups.length ? `<optgroup label="Csoport">${useGroups.map((g) => `<option value="g${g.id}"${pre === `g${g.id}` ? ' selected' : ''}>${esc(g.name)} (${active.filter((w) => gidsOf(w).includes(g.id)).length})</option>`).join('')}</optgroup>` : ''}
+      ${useGroups.length ? `<optgroup label="Munkakör">${useGroups.map((g) => `<option value="g${g.id}"${pre === `g${g.id}` ? ' selected' : ''}>${esc(g.name)} (${active.filter((w) => gidsOf(w).includes(g.id)).length})</option>`).join('')}</optgroup>` : ''}
       <optgroup label="Dolgozó">${active.map((w) => `<option value="${w.id}"${String(w.id) === pre ? ' selected' : ''}>${esc(w.name)}</option>`).join('')}</optgroup></select></div>
     <div class="field"><span class="label">Időszak</span><div class="quick" style="margin-top:0">
       <button type="button" data-p="week">Ez a hét</button><button type="button" data-p="lastweek">Múlt hét</button>
@@ -673,9 +675,9 @@ async function viewAudit() {
       case 'signature.delete': return 'Aláírás visszavonva';
       case 'signature.bulk': return `Aláírások rögzítve: ${d.count} dolgozó · ${dotted(d.from)} – ${dotted(d.to)}`;
       case 'entry.note': return `Megjegyzés módosítva: ${esc(name(d.workerId))} · „${esc(d.from)}” → „${esc(d.to)}”${d.overrideSigned ? ' · <b>aláírt időszakban</b>' : ''}`;
-      case 'worker.groups': return `Csoportok módosítva: ${esc(name(d.id))}`;
-      case 'group.create': return `Csoport létrehozva: ${esc(d.name)}`;
-      case 'group.delete': return 'Csoport törölve';
+      case 'worker.groups': return `Munkakör módosítva: ${esc(name(d.id))}`;
+      case 'group.create': return `Munkakör létrehozva: ${esc(d.name)}`;
+      case 'group.delete': return 'Munkakör törölve';
       case 'settings.warn': return `Magas egyenleg jelzése: ${d.hours} óra`;
       case 'password.change': return 'Jelszó módosítva';
       case 'login.fail': return `Sikertelen belépés (${esc(d.ip)})`;

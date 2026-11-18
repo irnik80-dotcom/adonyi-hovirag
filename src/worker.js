@@ -117,6 +117,9 @@ async function runSchema(env) {
   if (!had) {
     await env.DB.batch(DEFAULT_TEMPLATES.map((t) => env.DB.prepare('INSERT INTO note_templates (text) VALUES (?)').bind(t)));
   }
+  // Egy dolgozónak egy munkaköre lehet: a korábbi többszörös hozzárendelésből a legkisebb azonosítójú marad.
+  await env.DB.prepare('DELETE FROM staff_group_members WHERE group_id > (SELECT MIN(m.group_id) FROM staff_group_members m WHERE m.worker_id = staff_group_members.worker_id)').run();
+  await env.DB.prepare('CREATE UNIQUE INDEX IF NOT EXISTS member_one_group ON staff_group_members(worker_id)').run();
   const hadGroups = await env.DB.prepare("SELECT 1 AS x FROM sqlite_master WHERE type = 'table' AND name = 'staff_groups'").first();
   await env.DB.prepare(GROUPS_TABLE).run();
   if (!hadGroups) {
@@ -180,7 +183,7 @@ export default {
           await env.DB.prepare("INSERT INTO entries (worker_id, date, minutes, kind, note) VALUES (?, ?, ?, 'opening', ?)")
             .bind(w.id, date, opening, 'Nyitó egyenleg a papír nyilvántartásból').run();
         }
-        const gids = (Array.isArray(b.group_ids) ? b.group_ids : []).map(Number).filter(Number.isInteger);
+        const gids = (Array.isArray(b.group_ids) ? b.group_ids : []).map(Number).filter(Number.isInteger).slice(0, 1);
         if (gids.length) await env.DB.batch(gids.map((g) => env.DB.prepare('INSERT OR IGNORE INTO staff_group_members (worker_id, group_id) VALUES (?, ?)').bind(w.id, g)));
         await audit(env, 'worker.create', { id: w.id, name, opening });
         return json({ id: w.id }, 201);
@@ -205,6 +208,7 @@ export default {
         const id = Number(m[1]);
         const b = await request.json();
         const gids = [...new Set((Array.isArray(b.group_ids) ? b.group_ids : []).map(Number).filter(Number.isInteger))];
+        if (gids.length > 1) return fail(400, 'Egy dolgozónak egy munkaköre lehet.');
         if (!(await env.DB.prepare('SELECT id FROM workers WHERE id = ?').bind(id).first())) return fail(404, 'Nincs ilyen dolgozó.');
         await env.DB.batch([env.DB.prepare('DELETE FROM staff_group_members WHERE worker_id = ?').bind(id),
           ...gids.map((g) => env.DB.prepare('INSERT INTO staff_group_members (worker_id, group_id) VALUES (?, ?)').bind(id, g))]);
@@ -214,7 +218,7 @@ export default {
 
       if (path === '/api/groups' && method === 'POST') {
         const name = cleanText((await request.json()).name, 60);
-        if (!name) return fail(400, 'Add meg a csoport nevét.');
+        if (!name) return fail(400, 'Add meg a munkakör nevét.');
         const row = await env.DB.prepare('INSERT INTO staff_groups (name) VALUES (?) RETURNING id').bind(name).first();
         await audit(env, 'group.create', { id: row.id, name });
         return json({ id: row.id }, 201);
