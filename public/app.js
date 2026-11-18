@@ -71,10 +71,10 @@ const ICONS = {
 };
 
 const nav = (on) => `<nav class="nav">
-  <a href="#/" class="${on === 'list' ? 'on' : ''}">Áttekintés</a>
-  <a href="#/naptar" class="${on === 'cal' ? 'on' : ''}">Naptár</a>
-  <a href="#/kimutatas" class="${on === 'rep' ? 'on' : ''}">Kimutatás</a>
-  <a href="#/beallitasok" class="${on === 'set' ? 'on' : ''}">Beállítások</a></nav>`;
+  <a href="#/" class="${on === 'list' ? 'on' : ''}">${ICONS.home}<span>Áttekintés</span></a>
+  <a href="#/naptar" class="${on === 'cal' ? 'on' : ''}">${ICONS.cal}<span>Naptár</span></a>
+  <a href="#/kimutatas" class="${on === 'rep' ? 'on' : ''}">${ICONS.doc}<span>Kimutatás</span></a>
+  <a href="#/beallitasok" class="${on === 'set' ? 'on' : ''}">${ICONS.gear}<span>Beállítások</span></a></nav>`;
 
 const KIND = { opening: 'Nyitó egyenleg', credit: 'Túlóra', use: 'Szabadidő', reversal: 'Sztornó' };
 
