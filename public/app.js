@@ -20,6 +20,7 @@ const huFull = new Intl.DateTimeFormat('hu-HU', { year: 'numeric', month: 'long'
 const shortDate = (s) => (s ? hu.format(new Date(s + 'T12:00:00')) : '');
 const fullDate = (s) => huFull.format(new Date(s + 'T12:00:00'));
 const initials = (n) => n.split(/\s+/).filter(Boolean).slice(0, 2).map((p) => p[0].toUpperCase()).join('');
+const isAct = (w) => w.active === 1;
 const gidsOf = (w) => (w.group_ids ? String(w.group_ids).split(',').map(Number) : []);
 const bigTime = (m) => `${m < 0 ? '−' : ''}${Math.floor(Math.abs(m) / 60)}<span>ó</span>${pad(Math.abs(m) % 60)}<span>p</span>`;
 
@@ -152,7 +153,7 @@ function statusLine(w) {
 async function viewList() {
   $app.innerHTML = '<p class="empty">Betöltés…</p>';
   const { workers, upcoming, today_off: todayOff, groups, warn_high_min: warnHigh, prev_month_end: prevEnd } = await api('/workers');
-  const active = workers.filter((w) => w.active);
+  const active = workers.filter(isAct);
   const total = active.reduce((s, w) => s + w.balance, 0);
   const f = { g: 0 };
   const warns = [];
@@ -160,6 +161,9 @@ async function viewList() {
   if (missing.length) warns.push(`<a href="#/kimutatas?w=all&from=${prevEnd.slice(0, 8)}01&to=${prevEnd}"><b>${missing.length} dolgozónak</b> nincs aláírt kimutatása ${dotted(prevEnd)}-ig</a>`);
   if (warnHigh > 0) active.filter((w) => w.balance >= warnHigh).forEach((w) => warns.push(`<a href="#/dolgozo/${w.id}"><b>${esc(w.name)}</b>: magas egyenleg (${fmt(w.balance)}), érdemes szabadidőt kiadni</a>`));
   active.filter((w) => w.balance < 0).forEach((w) => warns.push(`<a href="#/dolgozo/${w.id}"><b>${esc(w.name)}</b>: előre kivett szabadidő (${fmt(w.balance)})</a>`));
+  const parked = workers.filter((w) => w.active === 2);
+  const soon = iso(new Date(Date.now() + 14 * 864e5));
+  parked.filter((w) => w.park_until && w.park_until <= soon).forEach((w) => warns.push(`<a href="#/dolgozo/${w.id}"><b>${esc(w.name)}</b>: ${w.park_until < today() ? 'a parkoltatás lejárt' : 'hamarosan visszatér'} (${dotted(w.park_until)})</a>`));
   const usedGroups = groups.filter((g) => active.some((w) => gidsOf(w).includes(g.id)));
   $app.innerHTML = `
     <div class="hello"><div><small>Adonyi Hóvirág Óvoda</small><h1>Áttekintés</h1></div></div>
@@ -175,6 +179,10 @@ async function viewList() {
     <label class="search">${ICONS.search}<input id="q" type="search" placeholder="Név keresése" aria-label="Név keresése"></label>
     ${usedGroups.length ? `<div class="quick chips" id="gf"><button type="button" data-g="0" aria-pressed="true">Mindenki</button>${usedGroups.map((g) => `<button type="button" data-g="${g.id}">${esc(g.name)}</button>`).join('')}</div>` : ''}
     <div class="list" id="l"></div>
+    ${parked.length ? `<details class="parked"><summary>Parkoltatottak (${parked.length})</summary><div class="list">${parked.map((w) => `
+      <a class="card muted" href="#/dolgozo/${w.id}"><div class="ini">${esc(initials(w.name))}</div>
+      <div class="who"><b>${esc(w.name)}</b><span>${esc(w.park_note || 'Parkoltatva')}${w.park_until ? ` · visszatér: ${dotted(w.park_until)}` : ''}</span></div>
+      <div class="bal ${balClass(w.balance)}">${fmt(w.balance)}</div></a>`).join('')}</div></details>` : ''}
     <a class="fab" href="#/uj">${ICONS.plus}Új tétel</a>${nav('list')}`;
   bindQueue();
   const draw = () => {
@@ -197,7 +205,7 @@ async function viewList() {
 
 async function viewNew(preselect) {
   const [{ workers, today: srvToday, groups }, { templates }] = await Promise.all([api('/workers'), api('/templates')]);
-  const active = workers.filter((w) => w.active);
+  const active = workers.filter(isAct);
   if (!active.length) { $app.innerHTML = `<p class="empty">Előbb vegyél fel dolgozót a Beállításokban.</p>${nav('set')}`; return; }
   const st = { kind: 'credit', h: 0, m: 30, mode: 'dur', t1: '16:00', t2: '18:00', multi: false, w: preselect && active.some((w) => w.id === +preselect) ? +preselect : active[0].id, picked: new Set() };
   $app.innerHTML = `
@@ -340,10 +348,13 @@ async function viewWorker(id) {
   $app.innerHTML = `
     <div class="topbar"><a class="back" href="#/" aria-label="Vissza">${ICONS.back}</a><h2>${esc(worker.name)}</h2></div>
     ${myGroups.length ? `<div class="quick" style="margin:8px 0 0">${myGroups.map((g) => `<span class="gtag">${esc(g.name)}</span>`).join('')}</div>` : ''}
+    ${worker.active === 2 ? `<div class="banner park"><b>Parkoltatva</b>${worker.park_note ? `: ${esc(worker.park_note)}` : ''}<br><small>${dotted(worker.park_since)} óta${worker.park_until ? ` · várható visszatérés: ${dotted(worker.park_until)}` : ''} A listákban és kimutatásokban nem szerepel.</small>
+      <button class="btn small" id="unpark" type="button" style="margin-top:8px">Visszahozás aktívként</button></div>` : ''}
+    ${worker.active === 0 ? '<div class="banner park"><b>Kilépett dolgozó</b><br><small>A listákban és kimutatásokban nem szerepel. Törölni a Beállításokban lehet.</small></div>' : ''}
     <div class="hero"><small>Aktuális egyenleg</small>
       <div class="big">${bigTime(worker.balance)}</div>
       ${worker.planned ? `<div class="pills"><span class="pill">Tervezett: ${fmt(worker.planned, true)}</span></div>` : ''}${ICONS.flower}</div>
-    <a class="btn" href="#/uj?w=${worker.id}" style="text-decoration:none">+ Új tétel ennek a dolgozónak</a>
+    ${worker.active === 1 ? `<a class="btn" href="#/uj?w=${worker.id}" style="text-decoration:none">+ Új tétel ennek a dolgozónak</a>` : ''}
     <div class="row" style="margin-top:10px"><a class="btn ghost small" style="flex:1;text-align:center;text-decoration:none" href="#/kimutatas?w=${worker.id}">Kimutatás</a>
       <button class="btn ghost small" style="flex:1" id="ren" type="button">Átnevezés</button></div>
     <form id="renf" class="row" style="margin-top:10px" hidden><input class="input" id="newname" maxlength="80" value="${esc(worker.name)}" aria-label="Új név" required>
@@ -409,6 +420,8 @@ async function viewWorker(id) {
   }));
   chips('[data-ft]', 'ft', 'type'); chips('[data-fr]', 'fr', 'range');
   drawYear(); drawEntries();
+  const up = document.getElementById('unpark');
+  if (up) up.onclick = async () => { await api(`/workers/${id}`, { method: 'PATCH', body: { status: 'active' } }); toast('Visszahozva'); viewWorker(id); };
   document.getElementById('ren').onclick = () => { const fm = document.getElementById('renf'); fm.hidden = !fm.hidden; if (!fm.hidden) document.getElementById('newname').focus(); };
   document.getElementById('renf').onsubmit = async (e) => {
     e.preventDefault();
@@ -432,9 +445,12 @@ async function viewSettings() {
         <input class="input" id="om" type="number" inputmode="numeric" min="0" max="59" placeholder="perc" aria-label="Nyitó perc"></div></div>
       <div id="msg"></div><button class="btn" type="submit">Dolgozó felvétele</button></form>
     <div class="field"><span class="label">Dolgozók</span>${workers.map((w) => `
-      <div class="set-item col ${w.active ? '' : 'off'}"><div class="top"><span>${esc(w.name)}</span>
-      <button class="btn ghost small" data-toggle="${w.id}" data-active="${w.active ? 0 : 1}">${w.active ? 'Inaktívvá tesz' : 'Aktiválás'}</button></div>
-      ${w.active ? '' : `<div class="inact"><span class="status warn">Kilépett${w.inactive_since ? `: inaktív ${dotted(w.inactive_since.slice(0, 10))} óta` : ''}</span><button class="btn ghost small danger" data-delw="${w.id}" data-name="${esc(w.name)}">Végleges törlés…</button></div>`}
+      <div class="set-item col ${w.active === 0 ? 'off' : ''}"><div class="top"><span>${esc(w.name)}</span><em class="stl st${w.active}">${['Kilépett', 'Aktív', 'Parkoltatva'][w.active]}</em></div>
+      ${w.active === 2 ? `<span class="status warn" style="font-size:12.5px">${esc(w.park_note || 'Parkoltatva')} · ${dotted(w.park_since)} óta${w.park_until ? ` · visszatér: ${dotted(w.park_until)}` : ''}</span>` : ''}
+      ${w.active === 0 && w.inactive_since ? `<span class="status warn" style="font-size:12.5px">Kilépett: ${dotted(w.inactive_since.slice(0, 10))} óta</span>` : ''}
+      <div class="inact" data-act="${w.id}">${w.active === 1 ? `<button class="btn ghost small" data-st="parked" data-id="${w.id}" data-name="${esc(w.name)}">Parkoltatás…</button><button class="btn ghost small" data-st="left" data-id="${w.id}">Kilépett</button>`
+        : w.active === 2 ? `<button class="btn ghost small" data-st="active" data-id="${w.id}">Visszahozás</button><button class="btn ghost small" data-st="left" data-id="${w.id}">Kilépett</button>`
+        : `<button class="btn ghost small" data-st="active" data-id="${w.id}">Aktiválás</button><button class="btn ghost small danger" data-delw="${w.id}" data-name="${esc(w.name)}">Végleges törlés…</button>`}</div>
       ${groups.length ? `<div class="quick chips" data-wg="${w.id}">${groups.map((g) => `<button type="button" data-g="${g.id}" aria-pressed="${gidsOf(w).includes(g.id)}">${esc(g.name)}</button>`).join('')}</div>` : ''}</div>`).join('')}</div>
     <div class="field"><span class="label">Munkakörök</span>
       ${groups.map((g) => `<div class="set-item"><span>${esc(g.name)}</span><button class="btn ghost small" data-delgrp="${g.id}">Törlés</button></div>`).join('')}
@@ -471,8 +487,22 @@ async function viewSettings() {
     try { await api('/workers', { method: 'POST', body: { name: $('nm').value, opening_minutes: min, date: today(), group_ids: [...newGroups] } }); toast('Felvéve'); viewSettings(); }
     catch (err) { $('msg').innerHTML = `<div class="err">${esc(err.message)}</div>`; }
   };
-  document.querySelectorAll('[data-toggle]').forEach((b) => (b.onclick = async () => {
-    await api(`/workers/${b.dataset.toggle}`, { method: 'PATCH', body: { active: b.dataset.active === '1' } }); viewSettings();
+  document.querySelectorAll('[data-st]').forEach((b) => (b.onclick = async () => {
+    const st = b.dataset.st;
+    if (st === 'parked') {
+      const row = b.closest('.set-item');
+      row.querySelector('.inact').outerHTML = `<form class="parkf"><span class="label">Miért parkoltatod?</span>
+        <div class="quick chips" style="margin-top:0">${['GYES', 'GYED', 'Tartós betegség', 'Fizetés nélküli szabadság'].map((t) => `<button type="button" data-pr="${t}">${t}</button>`).join('')}</div>
+        <input class="input" name="note" maxlength="80" placeholder="Megjegyzés (pl. GYES)" style="margin-top:8px">
+        <label class="label" style="margin-top:8px">Várható visszatérés (nem kötelező)</label><input class="input" type="date" name="until">
+        <div class="row" style="margin-top:8px"><button class="btn small" type="submit">Parkoltatás</button><button class="btn ghost small" type="button" data-no>Mégsem</button></div></form>`;
+      const f = row.querySelector('.parkf');
+      f.querySelectorAll('[data-pr]').forEach((c) => (c.onclick = () => { f.note.value = c.dataset.pr; }));
+      f.querySelector('[data-no]').onclick = () => viewSettings();
+      f.onsubmit = async (e) => { e.preventDefault(); await api(`/workers/${b.dataset.id}`, { method: 'PATCH', body: { status: 'parked', park_note: f.note.value, park_until: f.until.value || null } }); toast('Parkoltatva'); viewSettings(); };
+      return;
+    }
+    await api(`/workers/${b.dataset.id}`, { method: 'PATCH', body: { status: st } }); viewSettings();
   }));
   document.querySelectorAll('[data-wg] [data-g]').forEach((b) => (b.onclick = async () => {
     const wrap = b.closest('[data-wg]');
@@ -540,7 +570,7 @@ function presetRange(name) {
 
 async function viewReportForm(q) {
   const { workers, groups } = await api('/workers');
-  const active = workers.filter((w) => w.active);
+  const active = workers.filter(isAct);
   const [f0, t0] = presetRange('month');
   const pre = q && q.get('w');
   const st = { mode: 'sheets' };
@@ -553,7 +583,8 @@ async function viewReportForm(q) {
       <button type="button" data-mode="summary" aria-pressed="false">Összesítő lista</button></div></div>
     <div class="field"><label for="w">Kiknek</label><select class="input" id="w"><option value="all">Mindenki (${active.length} dolgozó)</option>
       ${useGroups.length ? `<optgroup label="Munkakör">${useGroups.map((g) => `<option value="g${g.id}"${pre === `g${g.id}` ? ' selected' : ''}>${esc(g.name)} (${active.filter((w) => gidsOf(w).includes(g.id)).length})</option>`).join('')}</optgroup>` : ''}
-      <optgroup label="Dolgozó">${active.map((w) => `<option value="${w.id}"${String(w.id) === pre ? ' selected' : ''}>${esc(w.name)}</option>`).join('')}</optgroup></select></div>
+      <optgroup label="Dolgozó">${active.map((w) => `<option value="${w.id}"${String(w.id) === pre ? ' selected' : ''}>${esc(w.name)}</option>`).join('')}</optgroup>
+      ${workers.some((w) => w.active === 2) ? `<optgroup label="Parkoltatott">${workers.filter((w) => w.active === 2).map((w) => `<option value="${w.id}"${String(w.id) === pre ? ' selected' : ''}>${esc(w.name)} (${esc(w.park_note || 'parkoltatva')})</option>`).join('')}</optgroup>` : ''}</select></div>
     <div class="field"><span class="label">Időszak</span><div class="quick" style="margin-top:0">
       <button type="button" data-p="week">Ez a hét</button><button type="button" data-p="lastweek">Múlt hét</button>
       <button type="button" data-p="month">Ez a hónap</button><button type="button" data-p="lastmonth">Múlt hónap</button></div></div>
@@ -705,7 +736,7 @@ async function viewAudit() {
     switch (r.action) {
       case 'worker.create': return `Dolgozó felvéve: ${d.name ? esc(d.name) : `törölt dolgozó (#${d.id})`}${d.opening ? ` (nyitó: ${fmt(d.opening)})` : ''}`;
       case 'worker.delete': return `Dolgozó véglegesen törölve (#${d.id}, ${d.entries} tétel)`;
-      case 'worker.update': return d.deleted ? `Dolgozó módosítva (törölt dolgozó, #${d.id})` : d.name !== undefined ? `Átnevezve: ${esc(d.name)}` : `${d.active ? 'Aktiválva' : 'Inaktívvá téve'}: ${esc(name(d.id))}`;
+      case 'worker.update': return d.deleted ? `Dolgozó módosítva (törölt dolgozó, #${d.id})` : d.name !== undefined ? `Átnevezve: ${esc(d.name)}` : d.status === 'parked' ? `Parkoltatva: ${esc(name(d.id))}${d.note ? ` (${esc(d.note)})` : ''}` : d.status === 'left' || d.active === false ? `Kilépettnek jelölve: ${esc(name(d.id))}` : `Aktiválva: ${esc(name(d.id))}`;
       case 'entry.create': return `Rögzítve: ${(d.workerIds || []).map((x) => esc(name(x))).join(', ')} · ${fmt(d.minutes, true)} · ${dotted(d.date)}${d.overrideSigned ? ' · <b>aláírt időszakba</b>' : ''}${d.offline ? ' · offline rögzítve' : ''}`;
       case 'entry.undo': return `Visszavonva (törölve): ${(d.ids || []).length} tétel`;
       case 'entry.reverse': return `Sztornó rögzítve (#${d.reverses} tételhez)`;

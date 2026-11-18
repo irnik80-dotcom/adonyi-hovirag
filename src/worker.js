@@ -105,8 +105,11 @@ const BALANCES = `
     (SELECT COUNT(*) FROM entries e WHERE e.worker_id = w.id AND e.date <= ?2
        AND e.date > COALESCE((SELECT MAX(to_date) FROM signatures s WHERE s.worker_id = w.id), '0000-00-00')) AS unsigned_old,
     (SELECT GROUP_CONCAT(group_id) FROM staff_group_members g WHERE g.worker_id = w.id) AS group_ids,
-    (SELECT MAX(at) FROM audit a WHERE a.action = 'worker.update' AND a.detail LIKE '%"active":false%'
-       AND (a.detail LIKE '{"id":' || w.id || ',%' OR a.detail LIKE '{"id":' || w.id || '}')) AS inactive_since
+    (SELECT MAX(at) FROM audit a WHERE a.action = 'worker.update' AND (a.detail LIKE '%"active":false%' OR a.detail LIKE '%"status":"left"%')
+       AND (a.detail LIKE '{"id":' || w.id || ',%' OR a.detail LIKE '{"id":' || w.id || '}')) AS inactive_since,
+    (SELECT note FROM worker_park p WHERE p.worker_id = w.id) AS park_note,
+    (SELECT since FROM worker_park p WHERE p.worker_id = w.id) AS park_since,
+    (SELECT until FROM worker_park p WHERE p.worker_id = w.id) AS park_until
   FROM workers w`;
 const prevMonthEnd = (todayStr) => { const [y, m] = todayStr.split('-').map(Number); return new Date(Date.UTC(y, m - 1, 0)).toISOString().slice(0, 10); };
 const getGroups = async (env) => (await env.DB.prepare('SELECT id, name FROM staff_groups ORDER BY id').all()).results;
@@ -234,8 +237,23 @@ export default {
         const cur = await env.DB.prepare('SELECT id FROM workers WHERE id = ?').bind(id).first();
         if (!cur) return fail(404, 'Nincs ilyen dolgozó.');
         if (b.name !== undefined) await env.DB.prepare('UPDATE workers SET name = ? WHERE id = ?').bind(name, id).run();
-        if (b.active !== undefined) await env.DB.prepare('UPDATE workers SET active = ? WHERE id = ?').bind(b.active ? 1 : 0, id).run();
-        await audit(env, 'worker.update', { id, name: b.name, active: b.active });
+        // Állapot: active (aktív), parked (parkoltatott, pl. GYES), left (kilépett)
+        const status = b.status ?? (b.active !== undefined ? (b.active ? 'active' : 'left') : undefined);
+        let note;
+        if (status !== undefined) {
+          const code = { active: 1, left: 0, parked: 2 }[status];
+          if (code === undefined) return fail(400, 'Hibás állapot.');
+          await env.DB.prepare('UPDATE workers SET active = ? WHERE id = ?').bind(code, id).run();
+          if (status === 'parked') {
+            note = cleanText(b.park_note, 80);
+            const until = isDate(b.park_until) ? b.park_until : null;
+            await env.DB.prepare('INSERT INTO worker_park (worker_id, note, since, until) VALUES (?1, ?2, ?3, ?4) ON CONFLICT(worker_id) DO UPDATE SET note = ?2, until = ?4')
+              .bind(id, note, today, until).run();
+          } else {
+            await env.DB.prepare('DELETE FROM worker_park WHERE worker_id = ?').bind(id).run();
+          }
+        }
+        await audit(env, 'worker.update', { id, name: b.name, status, note: note || undefined });
         return json({ ok: true });
       }
 
@@ -244,7 +262,7 @@ export default {
         const id = Number(m[1]);
         const cur = await env.DB.prepare('SELECT id, active FROM workers WHERE id = ?').bind(id).first();
         if (!cur) return fail(404, 'Nincs ilyen dolgozó.');
-        if (cur.active) return fail(409, 'Előbb tedd inaktívvá a dolgozót, utána törölhető.');
+        if (cur.active) return fail(409, 'Előbb jelöld kilépettnek a dolgozót, utána törölhető.');
         const count = (await env.DB.prepare('SELECT COUNT(*) AS n FROM entries WHERE worker_id = ?').bind(id).first()).n;
         // A naplóból eltávolítjuk a dolgozó nevét és a megjegyzések szövegét; csak a név nélküli azonosító marad.
         const rows = (await env.DB.prepare('SELECT id, action, detail FROM audit').all()).results;
@@ -254,7 +272,7 @@ export default {
           const own = r.action.startsWith('worker.') && d.id === id;
           const note = r.action === 'entry.note' && d.workerId === id;
           if (own || note) {
-            delete d.name; delete d.from; delete d.to; d.deleted = true;
+            delete d.name; delete d.from; delete d.to; delete d.note; d.deleted = true;
             scrub.push(env.DB.prepare('UPDATE audit SET detail = ? WHERE id = ?').bind(JSON.stringify(d), r.id));
           }
         }
@@ -262,6 +280,7 @@ export default {
           env.DB.prepare('DELETE FROM entries WHERE worker_id = ?').bind(id),
           env.DB.prepare('DELETE FROM signatures WHERE worker_id = ?').bind(id),
           env.DB.prepare('DELETE FROM staff_group_members WHERE worker_id = ?').bind(id),
+          env.DB.prepare('DELETE FROM worker_park WHERE worker_id = ?').bind(id),
           env.DB.prepare('DELETE FROM workers WHERE id = ?').bind(id),
           ...scrub,
         ]);
@@ -511,8 +530,9 @@ export default {
         const signatures = (await env.DB.prepare('SELECT * FROM signatures ORDER BY id').all()).results;
         const templates = (await env.DB.prepare('SELECT * FROM note_templates ORDER BY id').all()).results;
         const groups = await getGroups(env);
+        const parked = (await env.DB.prepare('SELECT * FROM worker_park').all()).results;
         const members = (await env.DB.prepare('SELECT * FROM staff_group_members').all()).results;
-        return new Response(JSON.stringify({ exported: new Date().toISOString(), workers, entries, signatures, templates, groups, members, audit: audit_ }, null, 1), { headers: {
+        return new Response(JSON.stringify({ exported: new Date().toISOString(), workers, entries, signatures, templates, groups, members, parked, audit: audit_ }, null, 1), { headers: {
           'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store',
           'content-disposition': `attachment; filename="hovirag-mentes-${today}.json"` } });
       }

@@ -56,6 +56,13 @@ export const SCHEMA = [
     group_id INTEGER NOT NULL,
     PRIMARY KEY (worker_id, group_id)
   )`,
+  // Parkoltatott (például GYES-en lévő) dolgozó adatai. A dolgozó active értéke ilyenkor 2.
+  `CREATE TABLE IF NOT EXISTS worker_park (
+    worker_id INTEGER PRIMARY KEY REFERENCES workers(id),
+    note TEXT NOT NULL DEFAULT '',
+    since TEXT NOT NULL,
+    until TEXT
+  )`,
 ];
 
 export const GROUPS_TABLE = `CREATE TABLE IF NOT EXISTS staff_groups (

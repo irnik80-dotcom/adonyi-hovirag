@@ -235,3 +235,15 @@ input[type=date].input::-webkit-date-and-time-value{text-align:left;margin:0}
 .btn.danger:disabled{opacity:.4}
 .set-item.col .warnbox{margin:0}
 .set-item.col .warnbox .check{padding:10px 0}
+
+/* v6 parkoltatás */
+.parked{margin-top:18px}
+.parked summary{font-weight:700;cursor:pointer;color:var(--ink-2);padding:8px 2px}
+.card.muted{opacity:.85;border-style:dashed}
+.banner.park{margin-top:12px;background:var(--surface-2);border:1px dashed var(--ink-2);border-radius:18px;padding:12px 14px;font-size:14px}
+.banner.park small{color:var(--ink-2)}
+.stl{font-style:normal;font-size:12px;font-weight:700;border-radius:99px;padding:4px 10px;background:var(--surface-2);color:var(--ink-2)}
+.stl.st1{background:var(--pos-bg);color:var(--pos-fg)}
+.stl.st2{background:var(--surface-2);color:var(--ink)}
+.parkf{display:flex;flex-direction:column}
+.parkf .label{margin-bottom:6px}
