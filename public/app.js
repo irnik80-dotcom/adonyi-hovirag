@@ -55,7 +55,7 @@ function viewLogin() {
   $app.innerHTML = `<form class="login" id="f">
     <h1>Hóvirág Túlóra</h1><p>Adonyi Hóvirág Óvoda</p>
     <div class="field"><label for="pw">Jelszó</label>
-    <input class="input" id="pw" type="password" autocomplete="current-password" required autofocus></div>
+    <input class="input" id="pw" type="password" autocomplete="current-password" autocapitalize="off" autocorrect="off" spellcheck="false" required autofocus></div>
     <div id="msg"></div>
     <button class="btn" type="submit">Belépés</button></form>`;
   document.getElementById('f').onsubmit = async (e) => {

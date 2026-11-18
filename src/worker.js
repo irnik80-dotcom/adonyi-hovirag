@@ -71,7 +71,7 @@ export default {
     if (path === '/api/login' && method === 'POST') {
       const body = await request.json().catch(() => ({}));
       if (!env.ADMIN_PASSWORD || !env.SESSION_SECRET) return fail(500, 'A szerver még nincs beállítva.');
-      if (!safeEqual(body.password ?? '', env.ADMIN_PASSWORD)) {
+      if (!safeEqual(String(body.password ?? '').trim(), String(env.ADMIN_PASSWORD).trim())) {
         await new Promise((r) => setTimeout(r, 600));
         return fail(401, 'Hibás jelszó.');
       }
