@@ -54,7 +54,7 @@ const ICONS = {
   back: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg>',
   plus: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>',
   search: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>',
-  flower: '<svg viewBox="0 0 100 110" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M50 110C50 70 52 40 62 14"/><path d="M62 14C42 22 38 52 54 60C70 52 76 28 62 14Z" fill="currentColor"/><path d="M50 100C34 92 22 80 16 62C34 66 46 80 50 100Z" fill="currentColor"/></svg>',
+  flower: '<svg viewBox="20 18 90 100"><path d="M50 114C47 84 38 58 24 34C42 52 52 82 54 114Z" fill="currentColor"/><path d="M54 114C58 86 70 66 84 46C72 68 62 90 58 114Z" fill="currentColor" opacity=".7"/><path d="M54 114C52 76 54 44 64 30C70 22 80 22 80 36" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round"/><ellipse cx="80" cy="38" rx="3.6" ry="4.6" fill="currentColor"/><path d="M80 40C72 52 68 66 72 82C80 70 84 54 80 40Z" fill="currentColor"/><path d="M80 40C66 46 56 62 56 78C68 72 78 58 80 40Z" fill="currentColor" opacity=".8"/><path d="M80 40C94 46 104 62 104 78C92 72 82 58 80 40Z" fill="currentColor" opacity=".8"/><path d="M70 70C74 78 86 78 90 70C86 74 74 74 70 70Z" fill="currentColor" opacity=".55"/></svg>',
 };
 
 const nav = (on) => `<nav class="nav">
@@ -338,22 +338,24 @@ async function viewReportForm(q) {
   };
 }
 
-const sheetHead = (id) => `<div class="ph-head"><div class="org">${ICONS.flower.replace('<svg', '<svg width="38" height="38" style="color:#1E4D3B"')}
+const stamp = () => new Intl.DateTimeFormat('hu-HU', { timeZone: 'Europe/Budapest', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }).format(new Date());
+
+const sheetHead = (when) => `<div class="ph-head"><div class="org">${ICONS.flower.replace('<svg', '<svg width="38" height="38" style="color:#1E4D3B"')}
   <div><b>Adonyi Hóvirág Óvoda</b><span>Túlóra és szabadidő nyilvántartás</span></div></div>
-  <div class="meta">Azonosító<br><b>${id}</b></div></div>`;
+  <div class="meta">Készült<br><b>${when}</b></div></div>`;
 
 async function viewReportPrint(q) {
   $app.innerHTML = '<p class="empty">Betöltés…</p>';
   const r = await api(`/report?from=${q.get('from')}&to=${q.get('to')}&worker=${encodeURIComponent(q.get('w') || 'all')}`);
+  const when = stamp();
   const sheet = (s) => {
     let run = s.opening;
     const rows = s.entries.map((e) => { run += e.minutes; return `<tr><td>${dotted(e.date)}</td><td>${esc(e.note || KIND[e.kind])}<br><small>${KIND[e.kind]}</small></td>
       <td class="r ${e.minutes < 0 ? 'minus' : 'plus'}">${fmt(e.minutes, true)}</td><td class="r">${fmt(run)}</td></tr>`; }).join('');
-    const id = `K-${r.to.replace(/-/g, '')}-${String(s.worker.id).padStart(3, '0')}`;
-    return `<section class="sheet">${sheetHead(id)}
+    return `<section class="sheet">${sheetHead(when)}
       <h3>Túlóra-kimutatás</h3>
       <div class="facts"><div><small>Dolgozó</small><b>${esc(s.worker.name)}</b></div><div><small>Időszak</small><b>${dotted(r.from)} – ${dotted(r.to)}</b></div>
-        <div><small>Nyitó egyenleg</small><b>${fmt(s.opening)}</b></div><div><small>Készült</small><b>${dotted(r.generated)}</b></div></div>
+        <div><small>Nyitó egyenleg</small><b>${fmt(s.opening)}</b></div></div>
       <table><thead><tr><th>Dátum</th><th>Megjegyzés</th><th class="r">Változás</th><th class="r">Egyenleg</th></tr></thead>
         <tbody>${rows || '<tr><td colspan="4" class="none">Az időszakban nem volt tétel.</td></tr>'}</tbody></table>
       <div class="total"><span>Záró egyenleg</span><b>${fmt(s.closing)}</b></div>
@@ -386,12 +388,12 @@ async function viewReportSummary(q) {
     return { name: s.worker.name, opening: s.opening, credit, used, closing: s.closing };
   });
   const sum = (k) => rows.reduce((a, x) => a + x[k], 0);
-  const id = `O-${r.to.replace(/-/g, '')}`;
+  const when = stamp();
   $app.innerHTML = `<div class="noprint"><div class="topbar"><a class="back" href="#/kimutatas" aria-label="Vissza">${ICONS.back}</a><h2>Összesítő</h2></div>
     <button class="btn" id="print" type="button" style="margin-bottom:16px">Nyomtatás / PDF mentése</button></div>
-    <section class="sheet">${sheetHead(id)}
+    <section class="sheet">${sheetHead(when)}
       <h3>Összesítő kimutatás</h3>
-      <div class="facts"><div><small>Időszak</small><b>${dotted(r.from)} – ${dotted(r.to)}</b></div><div><small>Készült</small><b>${dotted(r.generated)}</b></div></div>
+      <div class="facts"><div><small>Időszak</small><b>${dotted(r.from)} – ${dotted(r.to)}</b></div></div>
       <p class="unit">Az értékek óra:perc formában szerepelnek.</p>
       <table class="sum"><thead><tr><th>Dolgozó</th><th class="r">Nyitó</th><th class="r">Jóváírás</th><th class="r">Kivétel</th><th class="r">Záró</th></tr></thead>
         <tbody>${rows.map((x) => `<tr><td>${esc(x.name)}</td><td class="r">${hm(x.opening)}</td><td class="r plus">${x.credit ? hm(x.credit, true) : '–'}</td><td class="r minus">${x.used ? hm(-x.used) : '–'}</td><td class="r"><b>${hm(x.closing)}</b></td></tr>`).join('')}</tbody>

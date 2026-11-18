@@ -144,7 +144,7 @@ input[type=date].input::-webkit-date-and-time-value{text-align:left;margin:0}
 /* v2 */
 .logo{width:64px;height:64px;border-radius:20px;background:#1E4D3B;color:#CFEA6A;display:grid;place-items:center;margin-bottom:16px}
 
-.logo svg{width:38px}
+.logo svg{width:48px;height:48px}
 .hello small{letter-spacing:.04em}
 .card .who .status{display:block;font-size:12px;margin-top:3px}
 .status{font-size:12.5px;font-weight:600}
