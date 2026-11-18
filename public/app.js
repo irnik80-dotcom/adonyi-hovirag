@@ -20,6 +20,7 @@ const huFull = new Intl.DateTimeFormat('hu-HU', { year: 'numeric', month: 'long'
 const shortDate = (s) => (s ? hu.format(new Date(s + 'T12:00:00')) : '');
 const fullDate = (s) => huFull.format(new Date(s + 'T12:00:00'));
 const initials = (n) => n.split(/\s+/).filter(Boolean).slice(0, 2).map((p) => p[0].toUpperCase()).join('');
+const gidsOf = (w) => (w.group_ids ? String(w.group_ids).split(',').map(Number) : []);
 const bigTime = (m) => `${m < 0 ? '−' : ''}${Math.floor(Math.abs(m) / 60)}<span>ó</span>${pad(Math.abs(m) % 60)}<span>p</span>`;
 
 function toast(msg, action) {
@@ -150,37 +151,50 @@ function statusLine(w) {
 
 async function viewList() {
   $app.innerHTML = '<p class="empty">Betöltés…</p>';
-  const { workers, upcoming } = await api('/workers');
+  const { workers, upcoming, groups, warn_high_min: warnHigh, prev_month_end: prevEnd } = await api('/workers');
   const active = workers.filter((w) => w.active);
   const total = active.reduce((s, w) => s + w.balance, 0);
+  const f = { g: 0 };
+  const warns = [];
+  const missing = active.filter((w) => w.unsigned_old > 0);
+  if (missing.length) warns.push(`<a href="#/kimutatas?w=all&from=${prevEnd.slice(0, 8)}01&to=${prevEnd}"><b>${missing.length} dolgozónak</b> nincs aláírt kimutatása ${dotted(prevEnd)}-ig</a>`);
+  if (warnHigh > 0) active.filter((w) => w.balance >= warnHigh).forEach((w) => warns.push(`<a href="#/dolgozo/${w.id}"><b>${esc(w.name)}</b>: magas egyenleg (${fmt(w.balance)}), érdemes szabadidőt kiadni</a>`));
+  active.filter((w) => w.balance < 0).forEach((w) => warns.push(`<a href="#/dolgozo/${w.id}"><b>${esc(w.name)}</b>: előre kivett szabadidő (${fmt(w.balance)})</a>`));
+  const usedGroups = groups.filter((g) => active.some((w) => gidsOf(w).includes(g.id)));
   $app.innerHTML = `
     <div class="hello"><div><small>Adonyi Hóvirág Óvoda</small><h1>Áttekintés</h1></div></div>
     <div class="hero"><small>Összes felhalmozott szabadidő</small>
       <div class="big">${bigTime(total)}</div>
       <div class="pills"><span class="pill">${active.length} dolgozó</span>${upcoming.length ? `<span class="pill">${upcoming.length} tervezett szabadidő</span>` : ''}</div>${ICONS.flower}</div>
+    ${warns.length ? `<details class="warnlist" ${warns.length <= 3 ? 'open' : ''}><summary>${warns.length} figyelmeztetés</summary>${warns.join('')}</details>` : ''}
     ${upcoming.length ? `<div class="upcoming"><span class="label">Közelgő szabadidő</span>${upcoming.map((u) => `
       <a href="#/dolgozo/${u.worker_id}"><b>${shortDate(u.date)}</b><span>${esc(u.name)}</span><em>${fmt(-u.minutes)}</em></a>`).join('')}</div>` : ''}
     ${queueBanner()}
     <label class="search">${ICONS.search}<input id="q" type="search" placeholder="Név keresése" aria-label="Név keresése"></label>
+    ${usedGroups.length ? `<div class="quick chips" id="gf"><button type="button" data-g="0" aria-pressed="true">Mindenki</button>${usedGroups.map((g) => `<button type="button" data-g="${g.id}">${esc(g.name)}</button>`).join('')}</div>` : ''}
     <div class="list" id="l"></div>
     <a class="fab" href="#/uj">${ICONS.plus}Új tétel</a>${nav('list')}`;
   bindQueue();
   const draw = () => {
     const q = document.getElementById('q').value.trim().toLowerCase();
-    const rows = active.filter((w) => w.name.toLowerCase().includes(q));
+    const rows = active.filter((w) => w.name.toLowerCase().includes(q) && (!f.g || gidsOf(w).includes(f.g)));
     document.getElementById('l').innerHTML = rows.length ? rows.map((w) => `
       <a class="card" href="#/dolgozo/${w.id}"><div class="ini">${esc(initials(w.name))}</div>
       <div class="who"><b>${esc(w.name)}</b><span>${w.last_date ? `Utolsó: ${fmt(w.last_minutes, true)} · ${shortDate(w.last_date)}` : 'Még nincs tétel'}</span>${statusLine(w)}</div>
       <div class="bal ${balClass(w.balance)}">${fmt(w.balance)}</div></a>`).join('')
       : `<p class="empty">${active.length ? 'Nincs találat.' : 'Még nincs dolgozó. A Beállításokban fel tudod venni őket.'}</p>`;
   };
-  document.getElementById('q').oninput = draw; draw();
+  document.getElementById('q').oninput = draw;
+  document.querySelectorAll('[data-g]').forEach((b) => (b.onclick = () => {
+    f.g = +b.dataset.g; document.querySelectorAll('[data-g]').forEach((x) => x.setAttribute('aria-pressed', x === b)); draw();
+  }));
+  draw();
 }
 
 /* ---------- új tétel ---------- */
 
 async function viewNew(preselect) {
-  const [{ workers, today: srvToday }, { templates }] = await Promise.all([api('/workers'), api('/templates')]);
+  const [{ workers, today: srvToday, groups }, { templates }] = await Promise.all([api('/workers'), api('/templates')]);
   const active = workers.filter((w) => w.active);
   if (!active.length) { $app.innerHTML = `<p class="empty">Előbb vegyél fel dolgozót a Beállításokban.</p>${nav('set')}`; return; }
   const st = { kind: 'credit', h: 0, m: 30, multi: false, w: preselect && active.some((w) => w.id === +preselect) ? +preselect : active[0].id, picked: new Set() };
@@ -189,7 +203,9 @@ async function viewNew(preselect) {
     <form id="f">
     <div class="field"><label for="w">Dolgozó</label>
       <select class="input" id="w">${active.map((w) => `<option value="${w.id}">${esc(w.name)} (${fmt(w.balance)})</option>`).join('')}</select>
-      <div id="many" class="checks" hidden>${active.map((w) => `<label class="check"><input type="checkbox" value="${w.id}"><span>${esc(w.name)}</span></label>`).join('')}</div>
+      <div id="many" hidden>
+      <div class="quick chips" id="gch" style="margin:0 0 8px">${groups.filter((g) => active.some((w) => gidsOf(w).includes(g.id))).map((g) => `<button type="button" data-gp="${g.id}">${esc(g.name)} (${active.filter((w) => gidsOf(w).includes(g.id)).length})</button>`).join('')}<button type="button" data-gp="all">Mindenki</button><button type="button" data-gp="none">Törlés</button></div>
+      <div class="checks">${active.map((w) => `<label class="check"><input type="checkbox" value="${w.id}"><span>${esc(w.name)}</span></label>`).join('')}</div></div>
       <label class="check multi"><input type="checkbox" id="multi"><span>Több dolgozónak egyszerre</span></label></div>
     <div class="field"><span class="label">Mi történt?</span><div class="seg">
       <button type="button" data-kind="credit" aria-pressed="true">+ Túlóra jóváírása</button>
@@ -241,7 +257,18 @@ async function viewNew(preselect) {
     if (st.multi && !st.picked.size) { st.picked.add(+$('w').value); $('many').querySelector(`input[value="${$('w').value}"]`).checked = true; }
     sync();
   };
-  $('many').onchange = (e) => { const v = +e.target.value; e.target.checked ? st.picked.add(v) : st.picked.delete(v); sync(); };
+  $('many').onchange = (e) => { if (e.target.type !== 'checkbox') return; const v = +e.target.value; e.target.checked ? st.picked.add(v) : st.picked.delete(v); sync(); };
+  const syncChecks = () => document.querySelectorAll('#many input[type=checkbox]').forEach((c) => { c.checked = st.picked.has(+c.value); });
+  document.querySelectorAll('[data-gp]').forEach((b) => (b.onclick = () => {
+    const k = b.dataset.gp;
+    if (k === 'none') st.picked.clear();
+    else {
+      const members = k === 'all' ? active : active.filter((w) => gidsOf(w).includes(+k));
+      const all = members.every((w) => st.picked.has(w.id));
+      members.forEach((w) => (all ? st.picked.delete(w.id) : st.picked.add(w.id)));
+    }
+    syncChecks(); sync();
+  }));
   document.querySelectorAll('[data-kind]').forEach((b) => (b.onclick = () => { st.kind = b.dataset.kind; sync(); }));
   document.querySelectorAll('[data-add]').forEach((b) => (b.onclick = () => { setMin(minutes() + +b.dataset.add); sync(); }));
   document.querySelectorAll('[data-t]').forEach((b) => (b.onclick = () => { $('n').value = $('n').value.trim() ? `${$('n').value.trim()}, ${b.dataset.t}` : b.dataset.t; }));
@@ -291,11 +318,13 @@ const eduYearStart = (d = new Date()) => `${d.getMonth() >= 8 ? d.getFullYear() 
 
 async function viewWorker(id) {
   $app.innerHTML = '<p class="empty">Betöltés…</p>';
-  const { worker, entries, signatures, today: srvToday } = await api(`/workers/${id}/entries`);
+  const { worker, entries, signatures, groups, today: srvToday } = await api(`/workers/${id}/entries`);
+  const myGroups = groups.filter((g) => gidsOf(worker).includes(g.id));
   const f = { type: 'all', range: 'all', year: 'edu' };
   const isPlanned = (e) => e.date > srvToday && !e.reversed && e.kind === 'use';
   $app.innerHTML = `
     <div class="topbar"><a class="back" href="#/" aria-label="Vissza">${ICONS.back}</a><h2>${esc(worker.name)}</h2></div>
+    ${myGroups.length ? `<div class="quick" style="margin:8px 0 0">${myGroups.map((g) => `<span class="gtag">${esc(g.name)}</span>`).join('')}</div>` : ''}
     <div class="hero"><small>Aktuális egyenleg</small>
       <div class="big">${bigTime(worker.balance)}</div>
       ${worker.planned ? `<div class="pills"><span class="pill">Tervezett: ${fmt(worker.planned, true)}</span></div>` : ''}${ICONS.flower}</div>
@@ -335,8 +364,24 @@ async function viewWorker(id) {
       return `<div class="entry ${e.kind === 'reversal' || e.reversed ? 'dim' : ''} ${planned ? 'planned' : ''}">
         <div class="bal ${balClass(e.minutes)}">${fmt(e.minutes, true)}</div>
         <div class="meta"><b>${esc(e.note || KIND[e.kind])}</b><span>${fullDate(e.date)} · ${planned ? 'Tervezett szabadidő' : KIND[e.kind]}${e.reversed ? ' · sztornózva' : ''}</span></div>
-        ${e.kind !== 'reversal' && !e.reversed ? `<button class="undo" data-rev="${e.id}">${planned ? 'Lemondás' : 'Sztornó'}</button>` : ''}
+        <div class="eb"><button class="undo" data-edit="${e.id}" aria-label="Megjegyzés szerkesztése">✎</button>${e.kind !== 'reversal' && !e.reversed ? `<button class="undo" data-rev="${e.id}">${planned ? 'Lemondás' : 'Sztornó'}</button>` : ''}</div>
       </div>`; }).join('') : `<p class="empty">${entries.length ? 'Nincs a szűrésnek megfelelő tétel.' : 'Még nincs tétel.'}</p>`;
+    document.querySelectorAll('[data-edit]').forEach((b) => (b.onclick = () => {
+      const e = entries.find((x) => x.id === +b.dataset.edit); const row = b.closest('.entry');
+      row.innerHTML = `<form class="editf"><input class="input" maxlength="300" value="${esc(e.note)}" aria-label="Megjegyzés"><div class="ew"></div>
+        <div class="row" style="margin-top:8px"><button class="btn small" type="submit">Mentés</button><button class="btn ghost small" type="button" data-cancel>Mégsem</button></div></form>`;
+      const form = row.querySelector('form'); let confirm = false;
+      row.querySelector('[data-cancel]').onclick = () => drawEntries();
+      form.onsubmit = async (ev) => {
+        ev.preventDefault();
+        try { await api(`/entries/${e.id}`, { method: 'PATCH', body: { note: form.querySelector('input').value, confirm_signed: confirm } }); toast('Megjegyzés módosítva'); viewWorker(id); }
+        catch (err) {
+          if (err.needsConfirm) { confirm = true; form.querySelector('.ew').innerHTML = '<div class="warnbox">Ez az időszak már alá van írva, a papír szövege megváltozna.</div>'; form.querySelector('button[type=submit]').textContent = 'Mégis módosítom'; }
+          else toast(err.message);
+        }
+      };
+      form.querySelector('input').focus();
+    }));
     document.querySelectorAll('[data-rev]').forEach((b) => (b.onclick = async () => {
       const label = b.textContent;
       if (b.dataset.armed !== '1') { b.dataset.armed = '1'; b.textContent = 'Biztos?'; setTimeout(() => { b.dataset.armed = ''; b.textContent = label; }, 3000); return; }
@@ -360,18 +405,28 @@ async function viewWorker(id) {
 /* ---------- beállítások ---------- */
 
 async function viewSettings() {
-  const [{ workers }, { templates }] = await Promise.all([api('/workers'), api('/templates')]);
+  const [{ workers, groups, warn_high_min: warnHigh }, { templates }] = await Promise.all([api('/workers'), api('/templates')]);
+  const newGroups = new Set();
   $app.innerHTML = `
     <div class="topbar"><h2>Beállítások</h2></div>
     <form id="f"><div class="field"><label for="nm">Új dolgozó</label>
       <input class="input" id="nm" placeholder="Teljes név" maxlength="80" required></div>
+      ${groups.length ? `<div class="field"><span class="label">Csoport</span><div class="quick chips" id="ng" style="margin-top:0">${groups.map((g) => `<button type="button" data-ng="${g.id}" aria-pressed="false">${esc(g.name)}</button>`).join('')}</div></div>` : ''}
       <div class="field"><span class="label">Nyitó egyenleg a papírról</span><div class="row">
         <input class="input" id="oh" type="number" inputmode="numeric" min="0" placeholder="óra" aria-label="Nyitó óra">
         <input class="input" id="om" type="number" inputmode="numeric" min="0" max="59" placeholder="perc" aria-label="Nyitó perc"></div></div>
       <div id="msg"></div><button class="btn" type="submit">Dolgozó felvétele</button></form>
     <div class="field"><span class="label">Dolgozók</span>${workers.map((w) => `
-      <div class="set-item ${w.active ? '' : 'off'}"><span>${esc(w.name)}</span>
-      <button class="btn ghost small" data-toggle="${w.id}" data-active="${w.active ? 0 : 1}">${w.active ? 'Inaktívvá tesz' : 'Aktiválás'}</button></div>`).join('')}</div>
+      <div class="set-item col ${w.active ? '' : 'off'}"><div class="top"><span>${esc(w.name)}</span>
+      <button class="btn ghost small" data-toggle="${w.id}" data-active="${w.active ? 0 : 1}">${w.active ? 'Inaktívvá tesz' : 'Aktiválás'}</button></div>
+      ${groups.length ? `<div class="quick chips" data-wg="${w.id}">${groups.map((g) => `<button type="button" data-g="${g.id}" aria-pressed="${gidsOf(w).includes(g.id)}">${esc(g.name)}</button>`).join('')}</div>` : ''}</div>`).join('')}</div>
+    <div class="field"><span class="label">Csoportok</span>
+      ${groups.map((g) => `<div class="set-item"><span>${esc(g.name)}</span><button class="btn ghost small" data-delgrp="${g.id}">Törlés</button></div>`).join('')}
+      <form id="gf2" class="row" style="margin-top:8px"><input class="input" id="gn" maxlength="60" placeholder="Új csoport (pl. Konyha)" required><button class="btn small" type="submit">Hozzáad</button></form>
+      <p class="tabs-note">A csoport törlése a dolgozókat nem törli, csak a hozzárendelést.</p></div>
+    <div class="field"><span class="label">Figyelmeztetés magas egyenlegre</span>
+      <form id="wf" class="row"><input class="input" id="wh" type="number" inputmode="numeric" min="0" max="1000" value="${Math.round(warnHigh / 60)}" aria-label="Óra"><button class="btn small" type="submit">Mentés</button></form>
+      <p class="tabs-note">Ennyi óra felett az Áttekintésen figyelmeztetést látsz. 0 = kikapcsolva.</p></div>
     <div class="field"><span class="label">Gyakori megjegyzések</span>
       ${templates.map((t) => `<div class="set-item"><span>${esc(t.text)}</span><button class="btn ghost small" data-deltpl="${t.id}" aria-label="Törlés: ${esc(t.text)}">Törlés</button></div>`).join('')}
       <form id="tf" class="row" style="margin-top:8px"><input class="input" id="tt" maxlength="60" placeholder="Új gyors megjegyzés" required><button class="btn small" type="submit">Hozzáad</button></form></div>
@@ -388,30 +443,46 @@ async function viewSettings() {
     <div class="field"><span class="label">Telepítés a telefonra</span>
       <p class="tabs-note" style="margin:0">iPhone: Safari → Megosztás → <b>Főképernyőhöz adás</b>. Android: Chrome → ⋮ menü → <b>Alkalmazás telepítése</b>.</p></div>
     <div class="field"><button class="btn ghost" id="out" type="button">Kijelentkezés</button></div>${nav('set')}`;
-  document.getElementById('f').onsubmit = async (e) => {
+  const $ = (id) => document.getElementById(id);
+  document.querySelectorAll('[data-ng]').forEach((b) => (b.onclick = () => {
+    const v = +b.dataset.ng; newGroups.has(v) ? newGroups.delete(v) : newGroups.add(v); b.setAttribute('aria-pressed', newGroups.has(v));
+  }));
+  $('f').onsubmit = async (e) => {
     e.preventDefault();
-    const min = (+document.getElementById('oh').value || 0) * 60 + (+document.getElementById('om').value || 0);
-    try { await api('/workers', { method: 'POST', body: { name: document.getElementById('nm').value, opening_minutes: min, date: today() } }); toast('Felvéve'); viewSettings(); }
-    catch (err) { document.getElementById('msg').innerHTML = `<div class="err">${esc(err.message)}</div>`; }
+    const min = (+$('oh').value || 0) * 60 + (+$('om').value || 0);
+    try { await api('/workers', { method: 'POST', body: { name: $('nm').value, opening_minutes: min, date: today(), group_ids: [...newGroups] } }); toast('Felvéve'); viewSettings(); }
+    catch (err) { $('msg').innerHTML = `<div class="err">${esc(err.message)}</div>`; }
   };
   document.querySelectorAll('[data-toggle]').forEach((b) => (b.onclick = async () => {
     await api(`/workers/${b.dataset.toggle}`, { method: 'PATCH', body: { active: b.dataset.active === '1' } }); viewSettings();
   }));
+  document.querySelectorAll('[data-wg] [data-g]').forEach((b) => (b.onclick = async () => {
+    b.setAttribute('aria-pressed', b.getAttribute('aria-pressed') !== 'true');
+    const wrap = b.closest('[data-wg]');
+    const group_ids = [...wrap.querySelectorAll('[aria-pressed=true]')].map((x) => +x.dataset.g);
+    try { await api(`/workers/${wrap.dataset.wg}/groups`, { method: 'PUT', body: { group_ids } }); } catch (err) { toast(err.message); viewSettings(); }
+  }));
+  document.querySelectorAll('[data-delgrp]').forEach((b) => (b.onclick = async () => {
+    if (b.dataset.armed !== '1') { b.dataset.armed = '1'; b.textContent = 'Biztos?'; setTimeout(() => { b.dataset.armed = ''; b.textContent = 'Törlés'; }, 3000); return; }
+    await api(`/groups/${b.dataset.delgrp}`, { method: 'DELETE' }); viewSettings();
+  }));
+  $('gf2').onsubmit = async (e) => { e.preventDefault(); try { await api('/groups', { method: 'POST', body: { name: $('gn').value } }); viewSettings(); } catch (err) { toast(err.message); } };
+  $('wf').onsubmit = async (e) => { e.preventDefault(); await api('/settings', { method: 'PUT', body: { warn_high_hours: +$('wh').value } }); toast('Mentve'); };
   document.querySelectorAll('[data-deltpl]').forEach((b) => (b.onclick = async () => { await api(`/templates/${b.dataset.deltpl}`, { method: 'DELETE' }); viewSettings(); }));
-  document.getElementById('tf').onsubmit = async (e) => {
+  $('tf').onsubmit = async (e) => {
     e.preventDefault();
-    try { await api('/templates', { method: 'POST', body: { text: document.getElementById('tt').value } }); viewSettings(); } catch (err) { toast(err.message); }
+    try { await api('/templates', { method: 'POST', body: { text: $('tt').value } }); viewSettings(); } catch (err) { toast(err.message); }
   };
-  document.getElementById('pf').onsubmit = async (e) => {
+  $('pf').onsubmit = async (e) => {
     e.preventDefault();
-    const msg = document.getElementById('pmsg');
-    if (document.getElementById('pn').value !== document.getElementById('pn2').value) { msg.innerHTML = '<div class="err">A két új jelszó nem egyezik.</div>'; return; }
+    const msg = $('pmsg');
+    if ($('pn').value !== $('pn2').value) { msg.innerHTML = '<div class="err">A két új jelszó nem egyezik.</div>'; return; }
     try {
-      await api('/password', { method: 'POST', body: { current: document.getElementById('pc').value, next: document.getElementById('pn').value } });
+      await api('/password', { method: 'POST', body: { current: $('pc').value, next: $('pn').value } });
       e.target.reset(); msg.innerHTML = ''; toast('Jelszó módosítva. A többi eszközön újra be kell lépni.');
     } catch (err) { msg.innerHTML = `<div class="err">${esc(err.message)}</div>`; }
   };
-  document.getElementById('out').onclick = async () => {
+  $('out').onclick = async () => {
     await api('/logout', { method: 'POST' });
     try { await caches.delete('hovirag-v1'); localStorage.removeItem(QKEY); } catch { /* nincs gyorsítótár */ }
     location.hash = '#/belepes';
@@ -432,29 +503,32 @@ function presetRange(name) {
 }
 
 async function viewReportForm(q) {
-  const { workers } = await api('/workers');
+  const { workers, groups } = await api('/workers');
   const active = workers.filter((w) => w.active);
   const [f0, t0] = presetRange('month');
   const pre = q && q.get('w');
   const st = { mode: 'sheets' };
+  const useGroups = groups.filter((g) => active.some((w) => gidsOf(w).includes(g.id)));
   $app.innerHTML = `
     <div class="topbar"><h2>Kimutatás</h2></div>
     <form id="f">
     <div class="field"><span class="label">Forma</span><div class="seg">
       <button type="button" data-mode="sheets" aria-pressed="true">Dolgozónként (aláírásra)</button>
       <button type="button" data-mode="summary" aria-pressed="false">Összesítő lista</button></div></div>
-    <div class="field" id="wf"><label for="w">Dolgozó</label><select class="input" id="w"><option value="all">Mindenki (${active.length} oldal)</option>${active.map((w) => `<option value="${w.id}"${String(w.id) === pre ? ' selected' : ''}>${esc(w.name)}</option>`).join('')}</select></div>
+    <div class="field"><label for="w">Kiknek</label><select class="input" id="w"><option value="all">Mindenki (${active.length} dolgozó)</option>
+      ${useGroups.length ? `<optgroup label="Csoport">${useGroups.map((g) => `<option value="g${g.id}"${pre === `g${g.id}` ? ' selected' : ''}>${esc(g.name)} (${active.filter((w) => gidsOf(w).includes(g.id)).length})</option>`).join('')}</optgroup>` : ''}
+      <optgroup label="Dolgozó">${active.map((w) => `<option value="${w.id}"${String(w.id) === pre ? ' selected' : ''}>${esc(w.name)}</option>`).join('')}</optgroup></select></div>
     <div class="field"><span class="label">Időszak</span><div class="quick" style="margin-top:0">
       <button type="button" data-p="week">Ez a hét</button><button type="button" data-p="lastweek">Múlt hét</button>
       <button type="button" data-p="month">Ez a hónap</button><button type="button" data-p="lastmonth">Múlt hónap</button></div></div>
     <div class="field"><div class="row">
-      <div style="flex:1;min-width:0"><label class="label" for="from">Ettől</label><input class="input" id="from" type="date" value="${f0}" required></div>
-      <div style="flex:1;min-width:0"><label class="label" for="to">Eddig</label><input class="input" id="to" type="date" value="${t0}" required></div></div></div>
+      <div style="flex:1;min-width:0"><label class="label" for="from">Ettől</label><input class="input" id="from" type="date" value="${(q && q.get('from')) || f0}" required></div>
+      <div style="flex:1;min-width:0"><label class="label" for="to">Eddig</label><input class="input" id="to" type="date" value="${(q && q.get('to')) || t0}" required></div></div></div>
     <div id="msg"></div>
     <button class="btn" type="submit">Kimutatás megnyitása</button></form>
-    <p class="tabs-note">A következő oldalon nyomtathatod vagy PDF-be mentheted. Az aláírt példányt itt jelölheted meg.</p>${nav('rep')}`;
+    <p class="tabs-note">A következő oldalon nyomtathatod vagy PDF-be mentheted. Az aláírt példányokat ott jelölheted meg.</p>${nav('rep')}`;
   document.querySelectorAll('[data-mode]').forEach((b) => (b.onclick = () => {
-    st.mode = b.dataset.mode; document.getElementById('wf').hidden = st.mode === 'summary';
+    st.mode = b.dataset.mode;
     document.querySelectorAll('[data-mode]').forEach((x) => x.setAttribute('aria-pressed', x.dataset.mode === st.mode));
   }));
   document.querySelectorAll('[data-p]').forEach((b) => (b.onclick = () => {
@@ -462,9 +536,9 @@ async function viewReportForm(q) {
   }));
   document.getElementById('f').onsubmit = (e) => {
     e.preventDefault();
-    const from = document.getElementById('from').value, to = document.getElementById('to').value;
+    const from = document.getElementById('from').value, to = document.getElementById('to').value, w = document.getElementById('w').value;
     if (from > to) { document.getElementById('msg').innerHTML = '<div class="err">Az „Ettől” dátum nem lehet későbbi, mint az „Eddig”.</div>'; return; }
-    location.hash = st.mode === 'summary' ? `#/kimutatas/osszesito?from=${from}&to=${to}` : `#/kimutatas/nyomtatas?from=${from}&to=${to}&w=${document.getElementById('w').value}`;
+    location.hash = `#/kimutatas/${st.mode === 'summary' ? 'osszesito' : 'nyomtatas'}?from=${from}&to=${to}&w=${w}`;
   };
 }
 
@@ -496,9 +570,21 @@ async function viewReportPrint(q) {
         : `<label class="label" for="sd${s.worker.id}">${esc(s.worker.name)}: aláírva</label><input class="input" type="date" id="sd${s.worker.id}" value="${r.today}">
            <button class="btn small" data-sign="${s.worker.id}">Aláírt példány megvan</button>`}</div>`;
   };
-  $app.innerHTML = `<div class="noprint"><div class="topbar"><a class="back" href="#/kimutatas" aria-label="Vissza">${ICONS.back}</a><h2>${r.sheets.length} oldal</h2></div>
-    <button class="btn" id="print" type="button" style="margin-bottom:16px">Nyomtatás / PDF mentése</button></div>
+  const unsigned = r.sheets.filter((s) => !s.signed);
+  const bulk = r.sheets.length > 1 ? `<div class="bulk"><span class="label">Aláírások jelölése</span>${unsigned.length ? `
+      <div class="checks">${unsigned.map((s) => `<label class="check"><input type="checkbox" data-bw="${s.worker.id}" checked><span>${esc(s.worker.name)}</span></label>`).join('')}</div>
+      <div class="row" style="margin-top:8px"><input class="input" type="date" id="bd" value="${r.today}"><button class="btn small" id="bgo" type="button">Kijelöltek aláírva</button></div>
+      <p class="tabs-note" style="margin-top:6px">Vedd ki a pipát attól, aki még nem írta alá.</p>` : '<p class="tabs-note" style="margin:0">Mindenki aláírta ezt a kimutatást.</p>'}</div>` : '';
+  $app.innerHTML = `<div class="noprint"><div class="topbar"><a class="back" href="#/kimutatas" aria-label="Vissza">${ICONS.back}</a><h2>${r.sheets.length} oldal · ${esc(r.scope.name)}</h2></div>
+    <button class="btn" id="print" type="button" style="margin-bottom:16px">Nyomtatás / PDF mentése</button>${bulk}</div>
     ${r.sheets.length ? r.sheets.map(sheet).join('') : '<p class="empty">Nincs dolgozó a kimutatáshoz.</p>'}`;
+  const go = document.getElementById('bgo');
+  if (go) go.onclick = async () => {
+    const ids = [...document.querySelectorAll('[data-bw]:checked')].map((c) => +c.dataset.bw);
+    if (!ids.length) { toast('Jelölj ki legalább egy dolgozót.'); return; }
+    try { const { added } = await api('/signatures/bulk', { method: 'POST', body: { worker_ids: ids, from: r.from, to: r.to, signed_on: document.getElementById('bd').value } }); toast(`${added} aláírás rögzítve`); viewReportPrint(q); }
+    catch (err) { toast(err.message); }
+  };
   document.getElementById('print').onclick = () => window.print();
   document.querySelectorAll('[data-sign]').forEach((b) => (b.onclick = async () => {
     try { await api('/signatures', { method: 'POST', body: { worker_id: +b.dataset.sign, from: r.from, to: r.to, signed_on: document.getElementById('sd' + b.dataset.sign).value } }); toast('Aláírás rögzítve'); viewReportPrint(q); }
@@ -511,7 +597,7 @@ async function viewReportPrint(q) {
 
 async function viewReportSummary(q) {
   $app.innerHTML = '<p class="empty">Betöltés…</p>';
-  const r = await api(`/report?from=${q.get('from')}&to=${q.get('to')}&worker=all`);
+  const r = await api(`/report?from=${q.get('from')}&to=${q.get('to')}&worker=${encodeURIComponent(q.get('w') || 'all')}`);
   const rows = r.sheets.map((s) => {
     const credit = s.entries.reduce((a, e) => a + Math.max(e.minutes, 0), 0);
     const used = s.entries.reduce((a, e) => a + Math.max(-e.minutes, 0), 0);
@@ -523,7 +609,7 @@ async function viewReportSummary(q) {
     <button class="btn" id="print" type="button" style="margin-bottom:16px">Nyomtatás / PDF mentése</button></div>
     <section class="sheet">${sheetHead(when)}
       <h3>Összesítő kimutatás</h3>
-      <div class="facts"><div><small>Időszak</small><b>${dotted(r.from)} – ${dotted(r.to)}</b></div></div>
+      <div class="facts"><div><small>Időszak</small><b>${dotted(r.from)} – ${dotted(r.to)}</b></div><div><small>Kiknek</small><b>${esc(r.scope.name)}</b></div></div>
       <p class="unit">Az értékek óra:perc formában szerepelnek.</p>
       <table class="sum"><thead><tr><th>Dolgozó</th><th class="r">Nyitó</th><th class="r">Jóváírás</th><th class="r">Kivétel</th><th class="r">Záró</th></tr></thead>
         <tbody>${rows.map((x) => `<tr><td>${esc(x.name)}</td><td class="r">${hm(x.opening)}</td><td class="r plus">${x.credit ? hm(x.credit, true) : '–'}</td><td class="r minus">${x.used ? hm(-x.used) : '–'}</td><td class="r"><b>${hm(x.closing)}</b></td></tr>`).join('')}</tbody>
@@ -585,6 +671,12 @@ async function viewAudit() {
       case 'entry.reverse': return `Sztornó rögzítve (#${d.reverses} tételhez)`;
       case 'signature.create': return `Aláírás rögzítve: ${esc(name(d.wid))} · ${dotted(d.from)} – ${dotted(d.to)}`;
       case 'signature.delete': return 'Aláírás visszavonva';
+      case 'signature.bulk': return `Aláírások rögzítve: ${d.count} dolgozó · ${dotted(d.from)} – ${dotted(d.to)}`;
+      case 'entry.note': return `Megjegyzés módosítva: ${esc(name(d.workerId))} · „${esc(d.from)}” → „${esc(d.to)}”${d.overrideSigned ? ' · <b>aláírt időszakban</b>' : ''}`;
+      case 'worker.groups': return `Csoportok módosítva: ${esc(name(d.id))}`;
+      case 'group.create': return `Csoport létrehozva: ${esc(d.name)}`;
+      case 'group.delete': return 'Csoport törölve';
+      case 'settings.warn': return `Magas egyenleg jelzése: ${d.hours} óra`;
       case 'password.change': return 'Jelszó módosítva';
       case 'login.fail': return `Sikertelen belépés (${esc(d.ip)})`;
       default: return esc(r.action);

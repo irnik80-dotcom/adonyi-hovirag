@@ -1,7 +1,7 @@
 // Adonyi Hóvirág Óvoda – túlóra/szabadidő nyilvántartás (Cloudflare Worker + D1)
 // Titkok (wrangler secret put): ADMIN_PASSWORD, SESSION_SECRET
 
-import { SCHEMA, TEMPLATES_TABLE, DEFAULT_TEMPLATES } from './schema.js';
+import { SCHEMA, TEMPLATES_TABLE, DEFAULT_TEMPLATES, GROUPS_TABLE, DEFAULT_GROUPS } from './schema.js';
 
 const COOKIE = 'hovirag_session';
 const SESSION_SECONDS = 60 * 60 * 24 * 30;
@@ -90,7 +90,7 @@ const cleanText = (s, max) => String(s ?? '').trim().slice(0, max);
 
 const todayBudapest = () => new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Budapest' }).format(new Date());
 
-// ?1 = a mai nap. Az egyenleg csak a mai napig (és azt is beleértve) rögzített tételeket számolja,
+// ?1 = a mai nap, ?2 = az előző hónap utolsó napja. Az egyenleg csak a mai napig (és azt is beleértve) rögzített tételeket számolja,
 // a jövőbeli, tervezett szabadidő külön oszlop.
 const BALANCES = `
   SELECT w.id, w.name, w.active,
@@ -101,8 +101,13 @@ const BALANCES = `
     (SELECT MAX(to_date) FROM signatures s WHERE s.worker_id = w.id) AS signed_to,
     (SELECT signed_on FROM signatures s WHERE s.worker_id = w.id ORDER BY to_date DESC, id DESC LIMIT 1) AS signed_on,
     (SELECT COUNT(*) FROM entries e WHERE e.worker_id = w.id AND e.date <= ?1
-       AND e.date > COALESCE((SELECT MAX(to_date) FROM signatures s WHERE s.worker_id = w.id), '0000-00-00')) AS unsigned
+       AND e.date > COALESCE((SELECT MAX(to_date) FROM signatures s WHERE s.worker_id = w.id), '0000-00-00')) AS unsigned,
+    (SELECT COUNT(*) FROM entries e WHERE e.worker_id = w.id AND e.date <= ?2
+       AND e.date > COALESCE((SELECT MAX(to_date) FROM signatures s WHERE s.worker_id = w.id), '0000-00-00')) AS unsigned_old,
+    (SELECT GROUP_CONCAT(group_id) FROM staff_group_members g WHERE g.worker_id = w.id) AS group_ids
   FROM workers w`;
+const prevMonthEnd = (todayStr) => { const [y, m] = todayStr.split('-').map(Number); return new Date(Date.UTC(y, m - 1, 0)).toISOString().slice(0, 10); };
+const getGroups = async (env) => (await env.DB.prepare('SELECT id, name FROM staff_groups ORDER BY id').all()).results;
 
 let schemaReady;
 async function runSchema(env) {
@@ -111,6 +116,11 @@ async function runSchema(env) {
   await env.DB.prepare(TEMPLATES_TABLE).run();
   if (!had) {
     await env.DB.batch(DEFAULT_TEMPLATES.map((t) => env.DB.prepare('INSERT INTO note_templates (text) VALUES (?)').bind(t)));
+  }
+  const hadGroups = await env.DB.prepare("SELECT 1 AS x FROM sqlite_master WHERE type = 'table' AND name = 'staff_groups'").first();
+  await env.DB.prepare(GROUPS_TABLE).run();
+  if (!hadGroups) {
+    await env.DB.batch(DEFAULT_GROUPS.map((t) => env.DB.prepare('INSERT INTO staff_groups (name) VALUES (?)').bind(t)));
   }
 }
 const ensureSchema = (env) => (schemaReady ??= runSchema(env).catch((e) => { schemaReady = undefined; throw e; }));
@@ -144,17 +154,19 @@ export default {
     if (path === '/api/me') return json({ ok: true });
 
     const today = todayBudapest();
+    const prevEnd = prevMonthEnd(today);
 
     try {
       if (path === '/api/workers' && method === 'GET') {
-        const { results } = await env.DB.prepare(`${BALANCES} ORDER BY w.active DESC, w.name COLLATE NOCASE`).bind(today).all();
+        const { results } = await env.DB.prepare(`${BALANCES} ORDER BY w.active DESC, w.name COLLATE NOCASE`).bind(today, prevEnd).all();
         const upcoming = (await env.DB.prepare(
           `SELECT e.id, e.date, e.minutes, e.note, w.id AS worker_id, w.name
            FROM entries e JOIN workers w ON w.id = e.worker_id
            WHERE e.date > ? AND e.kind = 'use' AND w.active = 1
              AND NOT EXISTS (SELECT 1 FROM entries r WHERE r.reverses_id = e.id)
            ORDER BY e.date, e.id LIMIT 12`).bind(today).all()).results;
-        return json({ today, workers: results, upcoming });
+        const warnHigh = Number((await getSetting(env, 'warn_high_min')) ?? 2400);
+        return json({ today, prev_month_end: prevEnd, workers: results, upcoming, groups: await getGroups(env), warn_high_min: warnHigh });
       }
 
       if (path === '/api/workers' && method === 'POST') {
@@ -168,6 +180,8 @@ export default {
           await env.DB.prepare("INSERT INTO entries (worker_id, date, minutes, kind, note) VALUES (?, ?, ?, 'opening', ?)")
             .bind(w.id, date, opening, 'Nyitó egyenleg a papír nyilvántartásból').run();
         }
+        const gids = (Array.isArray(b.group_ids) ? b.group_ids : []).map(Number).filter(Number.isInteger);
+        if (gids.length) await env.DB.batch(gids.map((g) => env.DB.prepare('INSERT OR IGNORE INTO staff_group_members (worker_id, group_id) VALUES (?, ?)').bind(w.id, g)));
         await audit(env, 'worker.create', { id: w.id, name, opening });
         return json({ id: w.id }, 201);
       }
@@ -186,16 +200,85 @@ export default {
         return json({ ok: true });
       }
 
+      m = path.match(/^\/api\/workers\/(\d+)\/groups$/);
+      if (m && method === 'PUT') {
+        const id = Number(m[1]);
+        const b = await request.json();
+        const gids = [...new Set((Array.isArray(b.group_ids) ? b.group_ids : []).map(Number).filter(Number.isInteger))];
+        if (!(await env.DB.prepare('SELECT id FROM workers WHERE id = ?').bind(id).first())) return fail(404, 'Nincs ilyen dolgozó.');
+        await env.DB.batch([env.DB.prepare('DELETE FROM staff_group_members WHERE worker_id = ?').bind(id),
+          ...gids.map((g) => env.DB.prepare('INSERT INTO staff_group_members (worker_id, group_id) VALUES (?, ?)').bind(id, g))]);
+        await audit(env, 'worker.groups', { id, gids });
+        return json({ ok: true });
+      }
+
+      if (path === '/api/groups' && method === 'POST') {
+        const name = cleanText((await request.json()).name, 60);
+        if (!name) return fail(400, 'Add meg a csoport nevét.');
+        const row = await env.DB.prepare('INSERT INTO staff_groups (name) VALUES (?) RETURNING id').bind(name).first();
+        await audit(env, 'group.create', { id: row.id, name });
+        return json({ id: row.id }, 201);
+      }
+      m = path.match(/^\/api\/groups\/(\d+)$/);
+      if (m && method === 'DELETE') {
+        const id = Number(m[1]);
+        await env.DB.batch([env.DB.prepare('DELETE FROM staff_group_members WHERE group_id = ?').bind(id), env.DB.prepare('DELETE FROM staff_groups WHERE id = ?').bind(id)]);
+        await audit(env, 'group.delete', { id });
+        return json({ ok: true });
+      }
+
+      if (path === '/api/settings' && method === 'PUT') {
+        const b = await request.json();
+        if (b.warn_high_hours !== undefined) {
+          const h = Math.max(0, Math.min(1000, Math.trunc(Number(b.warn_high_hours) || 0)));
+          await putSetting(env, 'warn_high_min', String(h * 60));
+          await audit(env, 'settings.warn', { hours: h });
+        }
+        return json({ ok: true });
+      }
+
+      // Megjegyzés javítása (az időtartam és a dátum nem módosítható, hibánál sztornó kell)
+      m = path.match(/^\/api\/entries\/(\d+)$/);
+      if (m && method === 'PATCH') {
+        const id = Number(m[1]);
+        const b = await request.json();
+        const e = await env.DB.prepare('SELECT * FROM entries WHERE id = ?').bind(id).first();
+        if (!e) return fail(404, 'Nincs ilyen tétel.');
+        const note = cleanText(b.note, 300);
+        if (note === e.note) return json({ ok: true });
+        const sig = await env.DB.prepare('SELECT MAX(to_date) AS t FROM signatures WHERE worker_id = ?').bind(e.worker_id).first();
+        if (sig?.t && e.date <= sig.t && !b.confirm_signed) {
+          return json({ error: 'Az időszak már alá van írva.', needs_confirm: true, workers: [{ name: '', signed_to: sig.t }] }, 409);
+        }
+        await env.DB.prepare('UPDATE entries SET note = ? WHERE id = ?').bind(note, id).run();
+        await audit(env, 'entry.note', { id, workerId: e.worker_id, from: e.note, to: note, overrideSigned: sig?.t && e.date <= sig.t ? true : undefined });
+        return json({ ok: true });
+      }
+
+      if (path === '/api/signatures/bulk' && method === 'POST') {
+        const b = await request.json();
+        const ids = [...new Set((Array.isArray(b.worker_ids) ? b.worker_ids : []).map(Number).filter(Number.isInteger))].slice(0, 200);
+        if (!ids.length || !isDate(b.from) || !isDate(b.to) || b.from > b.to || !isDate(b.signed_on)) return fail(400, 'Hibás adat.');
+        const stmts = ids.map((wid) => env.DB.prepare(
+          `INSERT INTO signatures (worker_id, from_date, to_date, signed_on)
+           SELECT ?1, ?2, ?3, ?4 WHERE EXISTS (SELECT 1 FROM workers WHERE id = ?1)
+             AND NOT EXISTS (SELECT 1 FROM signatures WHERE worker_id = ?1 AND from_date = ?2 AND to_date = ?3)`).bind(wid, b.from, b.to, b.signed_on));
+        const out = await env.DB.batch(stmts);
+        const added = out.reduce((s, r) => s + (r.meta?.changes || 0), 0);
+        await audit(env, 'signature.bulk', { from: b.from, to: b.to, count: added });
+        return json({ added });
+      }
+
       m = path.match(/^\/api\/workers\/(\d+)\/entries$/);
       if (m && method === 'GET') {
         const id = Number(m[1]);
-        const worker = await env.DB.prepare(`${BALANCES} WHERE w.id = ?2`).bind(today, id).first();
+        const worker = await env.DB.prepare(`${BALANCES} WHERE w.id = ?3`).bind(today, prevEnd, id).first();
         if (!worker) return fail(404, 'Nincs ilyen dolgozó.');
         const { results } = await env.DB.prepare(
           `SELECT e.*, (SELECT 1 FROM entries r WHERE r.reverses_id = e.id) AS reversed
            FROM entries e WHERE e.worker_id = ? ORDER BY e.date DESC, e.id DESC`).bind(id).all();
         const signatures = (await env.DB.prepare('SELECT * FROM signatures WHERE worker_id = ? ORDER BY to_date DESC, id DESC').bind(id).all()).results;
-        return json({ today, worker, entries: results, signatures });
+        return json({ today, worker, entries: results, signatures, groups: await getGroups(env) });
       }
 
       if (path === '/api/entries' && method === 'POST') {
@@ -356,7 +439,9 @@ export default {
         const audit_ = (await env.DB.prepare('SELECT * FROM audit ORDER BY id').all()).results;
         const signatures = (await env.DB.prepare('SELECT * FROM signatures ORDER BY id').all()).results;
         const templates = (await env.DB.prepare('SELECT * FROM note_templates ORDER BY id').all()).results;
-        return new Response(JSON.stringify({ exported: new Date().toISOString(), workers, entries, signatures, templates, audit: audit_ }, null, 1), { headers: {
+        const groups = await getGroups(env);
+        const members = (await env.DB.prepare('SELECT * FROM staff_group_members').all()).results;
+        return new Response(JSON.stringify({ exported: new Date().toISOString(), workers, entries, signatures, templates, groups, members, audit: audit_ }, null, 1), { headers: {
           'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store',
           'content-disposition': `attachment; filename="hovirag-mentes-${today}.json"` } });
       }
@@ -366,10 +451,13 @@ export default {
         const only = url.searchParams.get('worker');
         if (!isDate(from) || !isDate(to) || from > to) return fail(400, 'Hibás időszak.');
         if (Date.parse(to) - Date.parse(from) > 1000 * 60 * 60 * 24 * 800) return fail(400, 'Az időszak legfeljebb 2 év lehet.');
-        const one = only && only !== 'all';
+        const grp = /^g\d+$/.test(only || '');
+        const one = only && only !== 'all' && !grp;
         const workers = (await env.DB.prepare(
-          one ? 'SELECT id, name FROM workers WHERE id = ?' : 'SELECT id, name FROM workers WHERE active = 1 ORDER BY name COLLATE NOCASE')
-          .bind(...(one ? [Number(only)] : [])).all()).results;
+          one ? 'SELECT id, name FROM workers WHERE id = ?'
+            : grp ? 'SELECT w.id, w.name FROM workers w JOIN staff_group_members g ON g.worker_id = w.id WHERE w.active = 1 AND g.group_id = ? ORDER BY w.name COLLATE NOCASE'
+            : 'SELECT id, name FROM workers WHERE active = 1 ORDER BY name COLLATE NOCASE')
+          .bind(...(one ? [Number(only)] : grp ? [Number(only.slice(1))] : [])).all()).results;
         const rows = (await env.DB.prepare(
           'SELECT id, worker_id, date, minutes, kind, note FROM entries WHERE date <= ? ORDER BY date, id').bind(to).all()).results;
         const sigs = (await env.DB.prepare('SELECT id, worker_id, signed_on FROM signatures WHERE from_date = ? AND to_date = ?').bind(from, to).all()).results;
@@ -380,7 +468,10 @@ export default {
           const sig = sigs.find((x) => x.worker_id === w.id);
           return { worker: w, opening, entries, closing: opening + entries.reduce((a, r) => a + r.minutes, 0), signed: sig ? { id: sig.id, signed_on: sig.signed_on } : null };
         });
-        return json({ today, from, to, generated: today, sheets });
+        let scope = { type: 'all', name: 'Mindenki' };
+        if (grp) scope = { type: 'group', name: (await env.DB.prepare('SELECT name FROM staff_groups WHERE id = ?').bind(Number(only.slice(1))).first())?.name || 'Csoport' };
+        else if (one) scope = { type: 'worker', name: workers[0]?.name || '' };
+        return json({ today, from, to, generated: today, scope, sheets });
       }
     } catch (err) {
       console.error(err);

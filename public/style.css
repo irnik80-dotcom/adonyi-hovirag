@@ -204,3 +204,19 @@ input[type=date].input::-webkit-date-and-time-value{text-align:left;margin:0}
 .day.today{outline:2px solid var(--green);outline-offset:-2px}
 .day.future{background:var(--surface-2)}
 .day i{position:absolute;right:3px;bottom:3px;min-width:18px;height:18px;border-radius:9px;background:var(--coral);color:#fff;font-style:normal;font-size:11px;display:grid;place-items:center;padding:0 4px}
+
+/* v4 */
+.gtag{font-size:12px;font-weight:600;background:var(--surface-2);color:var(--ink);border-radius:99px;padding:5px 11px}
+.warnlist{margin-top:14px;background:var(--neg-bg);color:var(--neg-fg);border-radius:20px;padding:12px 14px;font-size:14px}
+.warnlist summary{font-weight:700;cursor:pointer}
+.warnlist a{display:block;color:inherit;text-decoration:none;padding:8px 0;border-top:1px solid color-mix(in srgb,currentColor 20%,transparent);margin-top:8px}
+.set-item.col{flex-direction:column;align-items:stretch;gap:8px}
+.set-item .top{display:flex;align-items:center;gap:10px}
+.set-item .top span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.set-item .chips{margin-top:0}
+.entry .eb{display:flex;flex-direction:column;gap:6px}
+.editf{width:100%}
+.editf .ew{margin-top:8px}
+.bulk{background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:12px 14px;margin-bottom:16px}
+.bulk .checks{max-height:220px}
+.field>label.check{display:flex;text-transform:none;letter-spacing:0;font-size:15px;font-weight:500;margin:0;color:var(--ink-2)}

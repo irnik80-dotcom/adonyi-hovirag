@@ -50,7 +50,19 @@ export const SCHEMA = [
     ids TEXT NOT NULL,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   )`,
+  // Dolgozói csoportok (munkakör szerint). Egy dolgozó több csoportban is lehet.
+  `CREATE TABLE IF NOT EXISTS staff_group_members (
+    worker_id INTEGER NOT NULL REFERENCES workers(id),
+    group_id INTEGER NOT NULL,
+    PRIMARY KEY (worker_id, group_id)
+  )`,
 ];
+
+export const GROUPS_TABLE = `CREATE TABLE IF NOT EXISTS staff_groups (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL
+)`;
+export const DEFAULT_GROUPS = ['Pedagógusok', 'Pedagógiai asszisztensek', 'Dajkák'];
 
 // Gyakori megjegyzések. Az alapértékeket csak a tábla első létrehozásakor töltjük be.
 export const TEMPLATES_TABLE = `CREATE TABLE IF NOT EXISTS note_templates (
