@@ -27,18 +27,56 @@ function safeEqual(a, b) {
   return diff === 0;
 }
 
+const PBKDF2_ITER = 100000;
+const b64 = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf)));
+const unb64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
+async function hashPassword(password, salt) {
+  const key = await crypto.subtle.importKey('raw', enc.encode(password), 'PBKDF2', false, ['deriveBits']);
+  return new Uint8Array(await crypto.subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt, iterations: PBKDF2_ITER }, key, 256));
+}
+async function getSetting(env, key) {
+  return (await env.DB.prepare('SELECT value FROM settings WHERE key = ?').bind(key).first())?.value ?? null;
+}
+async function putSetting(env, key, value) {
+  await env.DB.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').bind(key, value).run();
+}
+// Ha a felületen már lecserélték a jelszót, az számít; különben a Cloudflare-ben megadott ADMIN_PASSWORD.
+async function checkPassword(env, candidate) {
+  const stored = await getSetting(env, 'admin_pw');
+  if (stored) {
+    const [salt, hash] = stored.split(':');
+    return safeEqual(b64(await hashPassword(candidate, unb64(salt))), hash);
+  }
+  return Boolean(env.ADMIN_PASSWORD) && safeEqual(candidate, String(env.ADMIN_PASSWORD).trim());
+}
+
 async function makeToken(env) {
   const exp = Math.floor(Date.now() / 1000) + SESSION_SECONDS;
-  return `${exp}.${await hmac(env.SESSION_SECRET, String(exp))}`;
+  const epoch = (await getSetting(env, 'session_epoch')) ?? '0';
+  return `${exp}.${epoch}.${await hmac(env.SESSION_SECRET, `${exp}.${epoch}`)}`;
 }
 
 async function isLoggedIn(request, env) {
   const m = (request.headers.get('cookie') || '').match(new RegExp(`${COOKIE}=([^;]+)`));
   if (!m || !env.SESSION_SECRET) return false;
-  const [exp, sig] = m[1].split('.');
-  if (!exp || !sig || Number(exp) < Date.now() / 1000) return false;
-  return safeEqual(sig, await hmac(env.SESSION_SECRET, exp));
+  const [exp, epoch, sig] = m[1].split('.');
+  if (!exp || !epoch || !sig || Number(exp) < Date.now() / 1000) return false;
+  if (!safeEqual(sig, await hmac(env.SESSION_SECRET, `${exp}.${epoch}`))) return false;
+  return epoch === ((await getSetting(env, 'session_epoch')) ?? '0');
 }
+
+// 15 percen belül 5 hibás próbálkozás IP-nként (összesen 30) után átmeneti tiltás.
+async function lockedOut(env, ip) {
+  const mine = await env.DB.prepare("SELECT COUNT(*) AS n FROM login_failures WHERE ip = ? AND at >= datetime('now', '-15 minutes')").bind(ip).first();
+  const all = await env.DB.prepare("SELECT COUNT(*) AS n FROM login_failures WHERE at >= datetime('now', '-15 minutes')").first();
+  return mine.n >= 5 || all.n >= 30;
+}
+async function recordFailure(env, ip) {
+  await env.DB.prepare('INSERT INTO login_failures (ip) VALUES (?)').bind(ip).run();
+  await env.DB.prepare("DELETE FROM login_failures WHERE at < datetime('now', '-1 day')").run();
+  await audit(env, 'login.fail', { ip });
+}
+const LOCK_MSG = 'Túl sok hibás próbálkozás. Próbáld újra 15 perc múlva.';
 
 const cookieHeader = (value, maxAge) =>
   `${COOKIE}=${value}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=${maxAge}`;
@@ -84,11 +122,15 @@ export default {
     const method = request.method;
 
     if (!path.startsWith('/api/')) return env.ASSETS.fetch(request);
+    await ensureSchema(env);
+    const ip = request.headers.get('cf-connecting-ip') || 'ismeretlen';
 
     if (path === '/api/login' && method === 'POST') {
       const body = await request.json().catch(() => ({}));
       if (!env.ADMIN_PASSWORD || !env.SESSION_SECRET) return fail(500, 'A szerver még nincs beállítva.');
-      if (!safeEqual(String(body.password ?? '').trim(), String(env.ADMIN_PASSWORD).trim())) {
+      if (await lockedOut(env, ip)) return fail(429, LOCK_MSG);
+      if (!(await checkPassword(env, String(body.password ?? '').trim()))) {
+        await recordFailure(env, ip);
         await new Promise((r) => setTimeout(r, 600));
         return fail(401, 'Hibás jelszó.');
       }
@@ -100,7 +142,6 @@ export default {
 
     if (!(await isLoggedIn(request, env))) return fail(401, 'Jelentkezz be.');
     if (path === '/api/me') return json({ ok: true });
-    await ensureSchema(env);
 
     const today = todayBudapest();
 
@@ -159,6 +200,11 @@ export default {
 
       if (path === '/api/entries' && method === 'POST') {
         const b = await request.json();
+        const clientId = cleanText(b.client_id, 64);
+        if (clientId) {
+          const done = await env.DB.prepare('SELECT ids FROM client_requests WHERE client_id = ?').bind(clientId).first();
+          if (done) return json({ ids: JSON.parse(done.ids), duplicate: true });
+        }
         const ids = [...new Set((Array.isArray(b.worker_ids) ? b.worker_ids : [b.worker_id]).map(Number))].filter(Number.isInteger);
         const minutes = Math.trunc(Number(b.minutes));
         const kind = b.kind === 'use' ? 'use' : 'credit';
@@ -167,14 +213,23 @@ export default {
         if (!Number.isInteger(minutes) || minutes <= 0 || minutes > 60 * 24 * 31) return fail(400, 'Adj meg 0-nál nagyobb időtartamot.');
         if (!isDate(b.date)) return fail(400, 'Hibás dátum.');
         if (kind === 'credit' && b.date > today) return fail(400, 'Túlórát csak már megtörtént napra lehet rögzíteni.');
-        const found = (await env.DB.prepare(`SELECT id FROM workers WHERE id IN (${ids.map(() => '?').join(',')})`).bind(...ids).all()).results;
+        const ph = ids.map(() => '?').join(',');
+        const found = (await env.DB.prepare(`SELECT id FROM workers WHERE id IN (${ph})`).bind(...ids).all()).results;
         if (found.length !== ids.length) return fail(404, 'Nincs ilyen dolgozó.');
+        // Már aláírt időszakba eső tétel megváltoztatná az aláírt papír tartalmát: csak megerősítéssel.
+        const signedHits = (await env.DB.prepare(
+          `SELECT w.name, MAX(s.to_date) AS signed_to FROM signatures s JOIN workers w ON w.id = s.worker_id
+           WHERE s.worker_id IN (${ph}) GROUP BY s.worker_id`).bind(...ids).all()).results.filter((r) => b.date <= r.signed_to);
+        if (signedHits.length && !b.confirm_signed) {
+          return json({ error: 'Az időszak már alá van írva.', needs_confirm: true, workers: signedHits }, 409);
+        }
         const signed = kind === 'use' ? -minutes : minutes;
         const note = cleanText(b.note, 300);
         const out = await env.DB.batch(ids.map((wid) =>
           env.DB.prepare('INSERT INTO entries (worker_id, date, minutes, kind, note) VALUES (?, ?, ?, ?, ?) RETURNING id').bind(wid, b.date, signed, kind, note)));
         const created = out.map((r) => r.results[0].id);
-        await audit(env, 'entry.create', { ids: created, workerIds: ids, minutes: signed, kind, date: b.date });
+        if (clientId) await env.DB.prepare('INSERT OR IGNORE INTO client_requests (client_id, ids) VALUES (?, ?)').bind(clientId, JSON.stringify(created)).run();
+        await audit(env, 'entry.create', { ids: created, workerIds: ids, minutes: signed, kind, date: b.date, overrideSigned: signedHits.length > 0 || undefined, offline: clientId ? true : undefined });
         return json({ ids: created }, 201);
       }
 
@@ -246,6 +301,43 @@ export default {
         await env.DB.prepare('DELETE FROM signatures WHERE id = ?').bind(Number(m[1])).run();
         await audit(env, 'signature.delete', { id: Number(m[1]) });
         return json({ ok: true });
+      }
+
+      if (path === '/api/password' && method === 'POST') {
+        const b = await request.json();
+        if (await lockedOut(env, ip)) return fail(429, LOCK_MSG);
+        const next = String(b.next ?? '').trim();
+        if (!(await checkPassword(env, String(b.current ?? '').trim()))) {
+          await recordFailure(env, ip);
+          return fail(403, 'A jelenlegi jelszó hibás.');
+        }
+        if (next.length < 8) return fail(400, 'Az új jelszó legalább 8 karakter legyen.');
+        if (next.length > 200) return fail(400, 'Az új jelszó túl hosszú.');
+        const salt = crypto.getRandomValues(new Uint8Array(16));
+        await putSetting(env, 'admin_pw', `${b64(salt)}:${b64(await hashPassword(next, salt))}`);
+        // A többi eszköz munkamenete lejár, ez az eszköz új munkamenetet kap.
+        await putSetting(env, 'session_epoch', String(Number((await getSetting(env, 'session_epoch')) ?? '0') + 1));
+        await audit(env, 'password.change', {});
+        return json({ ok: true }, 200, { 'set-cookie': cookieHeader(await makeToken(env), SESSION_SECONDS) });
+      }
+
+      if (path === '/api/audit' && method === 'GET') {
+        const log = (await env.DB.prepare('SELECT id, at, action, detail FROM audit ORDER BY id DESC LIMIT 200').all()).results
+          .map((r) => ({ ...r, detail: (() => { try { return JSON.parse(r.detail); } catch { return {}; } })() }));
+        const workers = Object.fromEntries((await env.DB.prepare('SELECT id, name FROM workers').all()).results.map((x) => [x.id, x.name]));
+        return json({ log, workers });
+      }
+
+      if (path === '/api/calendar' && method === 'GET') {
+        const month = url.searchParams.get('month') || today.slice(0, 7);
+        if (!/^\d{4}-\d{2}$/.test(month)) return fail(400, 'Hibás hónap.');
+        const entries = (await env.DB.prepare(
+          `SELECT e.id, e.date, e.minutes, e.note, w.id AS worker_id, w.name
+           FROM entries e JOIN workers w ON w.id = e.worker_id
+           WHERE e.kind = 'use' AND w.active = 1 AND e.date >= ? AND e.date <= ?
+             AND NOT EXISTS (SELECT 1 FROM entries r WHERE r.reverses_id = e.id)
+           ORDER BY e.date, w.name COLLATE NOCASE`).bind(`${month}-01`, `${month}-31`).all()).results;
+        return json({ today, month, entries });
       }
 
       if (path === '/api/backup' && method === 'GET') {

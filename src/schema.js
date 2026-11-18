@@ -36,6 +36,20 @@ export const SCHEMA = [
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   )`,
   `CREATE INDEX IF NOT EXISTS signatures_worker ON signatures(worker_id, to_date)`,
+  // Beállítások (jelszó-hash, munkamenet-verzió). A jelszó-hash soha nem kerül a mentésbe.
+  `CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)`,
+  // Sikertelen belépések (brute-force védelem)
+  `CREATE TABLE IF NOT EXISTS login_failures (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ip TEXT NOT NULL,
+    at TEXT NOT NULL DEFAULT (datetime('now'))
+  )`,
+  // Offline rögzített tételek ismételt beküldése ne duplázzon
+  `CREATE TABLE IF NOT EXISTS client_requests (
+    client_id TEXT PRIMARY KEY,
+    ids TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )`,
 ];
 
 // Gyakori megjegyzések. Az alapértékeket csak a tábla első létrehozásakor töltjük be.

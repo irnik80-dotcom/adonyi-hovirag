@@ -179,3 +179,28 @@ input[type=date].input::-webkit-date-and-time-value{text-align:left;margin:0}
 
 .sheet .unit{margin:0 0 6px;color:#5B6B62;font-size:10.5px}
 .sheet .sum .r{font-variant-numeric:tabular-nums}
+
+/* v3 */
+#net{position:fixed;top:0;left:0;right:0;z-index:30;background:var(--coral);color:var(--coral-ink);font-size:13px;font-weight:600;text-align:center;padding:calc(6px + env(safe-area-inset-top)) 12px 6px}
+.warnbox{background:var(--neg-bg);color:var(--neg-fg);border-radius:14px;padding:12px 14px;margin-top:12px;font-size:14px}
+.queue{margin-top:14px;background:var(--surface);border:1px dashed var(--coral);border-radius:20px;padding:12px 14px}
+.queue .qi{display:flex;gap:8px;align-items:center;justify-content:space-between;padding:8px 0;border-top:1px solid var(--line);font-size:14px;flex-wrap:wrap}
+.queue .qi:first-of-type{border-top:0}
+.chips{margin-top:8px}
+.chips button[aria-pressed=true]{background:var(--green);color:var(--green-ink);border-color:var(--green)}
+.yearcard{margin-top:14px;background:var(--surface);border:1px solid var(--line);border-radius:20px;padding:12px 14px}
+.yhead{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}
+.ygrid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:10px}
+.ygrid small{display:block;color:var(--ink-2);font-size:11px;text-transform:uppercase;letter-spacing:.05em}
+.ygrid b{font-family:var(--font-d);font-size:14px;font-variant-numeric:tabular-nums}
+.plus-c{color:var(--pos-fg)}.minus-c{color:var(--neg-fg)}
+@media (max-width:420px){.ygrid{grid-template-columns:1fr 1fr}}
+.calhead{display:flex;justify-content:space-between;align-items:center;margin-top:12px;gap:8px}
+.calhead b{font-family:var(--font-d);font-size:18px}
+.calgrid{display:grid;grid-template-columns:repeat(7,1fr);gap:6px;margin-top:12px}
+.calgrid>span{text-align:center;font-size:11px;font-weight:600;color:var(--ink-2);text-transform:uppercase}
+.day{position:relative;aspect-ratio:1;border:1px solid var(--line);background:var(--surface);border-radius:12px;display:grid;place-items:center;font-weight:600;padding:0}
+.day.empty{border:0;background:none}
+.day.today{outline:2px solid var(--green);outline-offset:-2px}
+.day.future{background:var(--surface-2)}
+.day i{position:absolute;right:3px;bottom:3px;min-width:18px;height:18px;border-radius:9px;background:var(--coral);color:#fff;font-style:normal;font-size:11px;display:grid;place-items:center;padding:0 4px}

@@ -35,21 +35,31 @@ function toast(msg, action) {
 }
 
 async function api(path, opts = {}) {
-  const res = await fetch('/api' + path, {
-    method: opts.method || 'GET',
-    headers: opts.body ? { 'content-type': 'application/json' } : {},
-    body: opts.body ? JSON.stringify(opts.body) : undefined,
-    credentials: 'same-origin',
-  });
+  let res;
+  try {
+    res = await fetch('/api' + path, {
+      method: opts.method || 'GET',
+      headers: opts.body ? { 'content-type': 'application/json' } : {},
+      body: opts.body ? JSON.stringify(opts.body) : undefined,
+      credentials: 'same-origin',
+    });
+  } catch {
+    const e = new Error('Nincs kapcsolat.'); e.offline = true; throw e;
+  }
   const data = await res.json().catch(() => ({}));
   if (res.status === 401 && path !== '/login') { location.hash = '#/belepes'; throw new Error('login'); }
-  if (!res.ok) throw new Error(data.error || 'Hiba történt.');
+  if (!res.ok) {
+    const e = new Error(data.error || 'Hiba történt.');
+    if (data.needs_confirm) { e.needsConfirm = true; e.workers = data.workers; }
+    throw e;
+  }
   return data;
 }
 
 const ICONS = {
   home: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="3.5" width="7" height="7" rx="2"/><rect x="13.5" y="3.5" width="7" height="7" rx="2"/><rect x="3.5" y="13.5" width="7" height="7" rx="2"/><rect x="13.5" y="13.5" width="7" height="7" rx="2"/></svg>',
   doc: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3h7l5 5v13H7z"/><path d="M14 3v5h5M10 13h6M10 17h6"/></svg>',
+  cal: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="4" y="5" width="16" height="15" rx="3"/><path d="M4 10h16M9 3v4M15 3v4"/></svg>',
   gear: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/></svg>',
   back: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg>',
   plus: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>',
@@ -59,10 +69,55 @@ const ICONS = {
 
 const nav = (on) => `<nav class="nav">
   <a href="#/" class="${on === 'list' ? 'on' : ''}">${ICONS.home}Áttekintés</a>
+  <a href="#/naptar" class="${on === 'cal' ? 'on' : ''}">${ICONS.cal}Naptár</a>
   <a href="#/kimutatas" class="${on === 'rep' ? 'on' : ''}">${ICONS.doc}Kimutatás</a>
   <a href="#/beallitasok" class="${on === 'set' ? 'on' : ''}">${ICONS.gear}Beállítások</a></nav>`;
 
 const KIND = { opening: 'Nyitó egyenleg', credit: 'Túlóra', use: 'Szabadidő', reversal: 'Sztornó' };
+
+/* ---------- offline sor ---------- */
+
+const QKEY = 'hovirag_queue';
+const loadQ = () => { try { return JSON.parse(localStorage.getItem(QKEY) || '[]'); } catch { return []; } };
+const saveQ = (q) => { try { localStorage.setItem(QKEY, JSON.stringify(q)); } catch { /* tele a tárhely vagy tiltott */ } };
+const uuid = () => (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`);
+let flushing = false;
+
+async function flushQueue() {
+  if (flushing || !navigator.onLine) return 0;
+  flushing = true;
+  let sent = 0;
+  try {
+    const q = loadQ();
+    for (const item of q) {
+      if (item.blocked) continue;
+      try { await api('/entries', { method: 'POST', body: item.body }); item.done = true; sent++; }
+      catch (err) {
+        if (err.offline) break;
+        if (err.message === 'login') break;
+        item.blocked = err.needsConfirm ? 'Már aláírt időszakba esik.' : err.message;
+        item.needsConfirm = Boolean(err.needsConfirm);
+      }
+    }
+    saveQ(q.filter((i) => !i.done));
+  } finally { flushing = false; }
+  if (sent) { toast(`${sent} offline rögzített tétel feltöltve`); route(); }
+  return sent;
+}
+
+function queueBanner() {
+  const q = loadQ();
+  if (!q.length) return '';
+  return `<div class="queue"><span class="label">Feltöltésre vár (${q.length})</span>${q.map((i, n) => `
+    <div class="qi"><span>${esc(i.label)}${i.blocked ? `<br><em class="status warn">${esc(i.blocked)}</em>` : ''}</span>
+    ${i.blocked ? `${i.needsConfirm ? `<button class="btn small" data-qok="${n}">Mégis rögzítem</button>` : ''}<button class="btn ghost small" data-qdrop="${n}">Elvetés</button>` : '<em class="status">vár…</em>'}</div>`).join('')}</div>`;
+}
+function bindQueue() {
+  document.querySelectorAll('[data-qok]').forEach((b) => (b.onclick = () => {
+    const q = loadQ(); const i = q[+b.dataset.qok]; i.body.confirm_signed = true; delete i.blocked; saveQ(q); flushQueue().then(() => route());
+  }));
+  document.querySelectorAll('[data-qdrop]').forEach((b) => (b.onclick = () => { const q = loadQ(); q.splice(+b.dataset.qdrop, 1); saveQ(q); route(); }));
+}
 
 /* ---------- belépés ---------- */
 
@@ -105,9 +160,11 @@ async function viewList() {
       <div class="pills"><span class="pill">${active.length} dolgozó</span>${upcoming.length ? `<span class="pill">${upcoming.length} tervezett szabadidő</span>` : ''}</div>${ICONS.flower}</div>
     ${upcoming.length ? `<div class="upcoming"><span class="label">Közelgő szabadidő</span>${upcoming.map((u) => `
       <a href="#/dolgozo/${u.worker_id}"><b>${shortDate(u.date)}</b><span>${esc(u.name)}</span><em>${fmt(-u.minutes)}</em></a>`).join('')}</div>` : ''}
+    ${queueBanner()}
     <label class="search">${ICONS.search}<input id="q" type="search" placeholder="Név keresése" aria-label="Név keresése"></label>
     <div class="list" id="l"></div>
     <a class="fab" href="#/uj">${ICONS.plus}Új tétel</a>${nav('list')}`;
+  bindQueue();
   const draw = () => {
     const q = document.getElementById('q').value.trim().toLowerCase();
     const rows = active.filter((w) => w.name.toLowerCase().includes(q));
@@ -194,25 +251,49 @@ async function viewNew(preselect) {
     sync();
   }));
   sync();
-  $('f').onsubmit = async (e) => {
-    e.preventDefault(); $('save').disabled = true;
+  const submit = async (confirm) => {
     const ids = targets();
+    const body = { worker_ids: ids, kind: st.kind, minutes: minutes(), date: $('d').value, note: $('n').value, client_id: uuid() };
+    const hits = ids.map((id) => active.find((w) => w.id === id)).filter((w) => w && w.signed_to && body.date <= w.signed_to);
+    if (hits.length && !confirm) return warnSigned(hits.map((w) => ({ name: w.name, signed_to: w.signed_to })));
+    if (confirm) body.confirm_signed = true;
+    $('save').disabled = true; $('msg').innerHTML = '';
     try {
-      const { ids: created } = await api('/entries', { method: 'POST', body: { worker_ids: ids, kind: st.kind, minutes: minutes(), date: $('d').value, note: $('n').value } });
+      const { ids: created } = await api('/entries', { method: 'POST', body });
       location.hash = ids.length === 1 ? `#/dolgozo/${ids[0]}` : '#/';
       toast(ids.length === 1 ? 'Rögzítve' : `Rögzítve ${ids.length} dolgozónak`, {
         label: 'Visszavonás',
         run: async () => { try { await api('/entries/undo', { method: 'POST', body: { ids: created } }); toast('Visszavonva'); route(); } catch (err) { toast(err.message); } },
       });
-    } catch (err) { $('msg').innerHTML = `<div class="err">${esc(err.message)}</div>`; $('save').disabled = false; }
+    } catch (err) {
+      if (err.needsConfirm) { $('save').disabled = false; return warnSigned(err.workers); }
+      if (err.offline) {
+        const names = ids.map((id) => active.find((w) => w.id === id)?.name).filter(Boolean).join(', ');
+        const q = loadQ(); q.push({ body, label: `${names} · ${fmt(st.kind === 'use' ? -minutes() : minutes(), true)} · ${shortDate(body.date)}` }); saveQ(q);
+        toast('Nincs kapcsolat: a tétel a telefonon van, a net visszatérésekor feltöltődik.'); location.hash = '#/';
+        return;
+      }
+      $('msg').innerHTML = `<div class="err">${esc(err.message)}</div>`; $('save').disabled = false;
+    }
   };
+  const warnSigned = (list) => {
+    $('msg').innerHTML = `<div class="warnbox"><b>Ez az időszak már alá van írva.</b><br>${list.map((x) => `${esc(x.name)}: ${dotted(x.signed_to)}-ig`).join('<br>')}
+      <br>A mostani tétel az aláírt papír tartalmát megváltoztatná.<div class="row" style="margin-top:10px"><button class="btn small" type="button" id="go">Mégis rögzítem</button><button class="btn ghost small" type="button" id="no">Mégsem</button></div></div>`;
+    $('go').onclick = () => submit(true); $('no').onclick = () => { $('msg').innerHTML = ''; };
+    $('msg').scrollIntoView({ block: 'center', behavior: 'smooth' });
+  };
+  $('f').onsubmit = (e) => { e.preventDefault(); submit(false); };
 }
 
 /* ---------- dolgozó lapja ---------- */
 
+const eduYearStart = (d = new Date()) => `${d.getMonth() >= 8 ? d.getFullYear() : d.getFullYear() - 1}-09-01`;
+
 async function viewWorker(id) {
   $app.innerHTML = '<p class="empty">Betöltés…</p>';
   const { worker, entries, signatures, today: srvToday } = await api(`/workers/${id}/entries`);
+  const f = { type: 'all', range: 'all', year: 'edu' };
+  const isPlanned = (e) => e.date > srvToday && !e.reversed && e.kind === 'use';
   $app.innerHTML = `
     <div class="topbar"><a class="back" href="#/" aria-label="Vissza">${ICONS.back}</a><h2>${esc(worker.name)}</h2></div>
     <div class="hero"><small>Aktuális egyenleg</small>
@@ -223,27 +304,57 @@ async function viewWorker(id) {
       <button class="btn ghost small" style="flex:1" id="ren" type="button">Átnevezés</button></div>
     <form id="renf" class="row" style="margin-top:10px" hidden><input class="input" id="newname" maxlength="80" value="${esc(worker.name)}" aria-label="Új név" required>
       <button class="btn small" type="submit">Mentés</button></form>
+    <div class="yearcard" id="yc"></div>
     ${signatures.length ? `<div class="field"><span class="label">Aláírt kimutatások</span>${signatures.slice(0, 5).map((s) => `<div class="set-item"><span>${dotted(s.from_date)} – ${dotted(s.to_date)}</span><em class="status ok">Aláírva: ${dotted(s.signed_on)}</em></div>`).join('')}</div>` : ''}
-    <div class="entries" id="e">${entries.length ? entries.map((e) => {
-      const planned = e.date > srvToday && !e.reversed && e.kind === 'use';
+    <div class="field"><span class="label">Tételek</span>
+      <div class="quick chips" id="ft" style="margin-top:0"><button type="button" data-ft="all" aria-pressed="true">Mind</button><button type="button" data-ft="credit">Túlóra</button><button type="button" data-ft="use">Szabadidő</button><button type="button" data-ft="planned">Tervezett</button></div>
+      <div class="quick chips" id="fr"><button type="button" data-fr="all" aria-pressed="true">Mindig</button><button type="button" data-fr="edu">Nevelési év</button><button type="button" data-fr="90">Utolsó 90 nap</button></div></div>
+    <div class="entries" id="e"></div>
+    <p class="tabs-note">A tételek nem törölhetők, hibát sztornóval lehet javítani.</p>${nav('')}`;
+
+  const drawYear = () => {
+    const d = new Date();
+    const start = f.year === 'edu' ? eduYearStart(d) : `${d.getFullYear()}-01-01`;
+    const live = entries.filter((e) => e.date <= srvToday);
+    const before = live.filter((e) => e.date < start || (e.kind === 'opening' && e.date >= start)).reduce((s, e) => s + e.minutes, 0);
+    const inRange = live.filter((e) => e.date >= start && e.kind !== 'opening');
+    const gained = inRange.reduce((s, e) => s + Math.max(e.minutes, 0), 0);
+    const used = inRange.reduce((s, e) => s + Math.max(-e.minutes, 0), 0);
+    document.getElementById('yc').innerHTML = `<div class="yhead"><span class="label" style="margin:0">${f.year === 'edu' ? 'Nevelési év' : 'Naptári év'} (${dotted(start)}-tól)</span>
+      <span class="quick chips" style="margin:0"><button type="button" data-yr="edu" aria-pressed="${f.year === 'edu'}">Nevelési</button><button type="button" data-yr="cal" aria-pressed="${f.year === 'cal'}">Naptári</button></span></div>
+      <div class="ygrid"><div><small>Nyitó</small><b>${fmt(before)}</b></div><div><small>Gyűjtött</small><b class="plus-c">${fmt(gained, true)}</b></div>
+      <div><small>Felhasznált</small><b class="minus-c">${used ? fmt(-used) : '0 ó 00 p'}</b></div><div><small>Egyenleg</small><b>${fmt(before + gained - used)}</b></div></div>`;
+    document.querySelectorAll('[data-yr]').forEach((b) => (b.onclick = () => { f.year = b.dataset.yr; drawYear(); }));
+  };
+  const drawEntries = () => {
+    const d = new Date();
+    const from = f.range === 'edu' ? eduYearStart(d) : f.range === '90' ? iso(new Date(d.getTime() - 90 * 864e5)) : '0000-00-00';
+    const rows = entries.filter((e) => e.date >= from && (f.type === 'all' || (f.type === 'credit' && e.kind === 'credit') || (f.type === 'use' && e.kind === 'use' && !isPlanned(e)) || (f.type === 'planned' && isPlanned(e))));
+    document.getElementById('e').innerHTML = rows.length ? rows.map((e) => {
+      const planned = isPlanned(e);
       return `<div class="entry ${e.kind === 'reversal' || e.reversed ? 'dim' : ''} ${planned ? 'planned' : ''}">
         <div class="bal ${balClass(e.minutes)}">${fmt(e.minutes, true)}</div>
         <div class="meta"><b>${esc(e.note || KIND[e.kind])}</b><span>${fullDate(e.date)} · ${planned ? 'Tervezett szabadidő' : KIND[e.kind]}${e.reversed ? ' · sztornózva' : ''}</span></div>
         ${e.kind !== 'reversal' && !e.reversed ? `<button class="undo" data-rev="${e.id}">${planned ? 'Lemondás' : 'Sztornó'}</button>` : ''}
-      </div>`; }).join('') : '<p class="empty">Még nincs tétel.</p>'}</div>
-    <p class="tabs-note">A tételek nem törölhetők, hibát sztornóval lehet javítani.</p>${nav('')}`;
-  document.getElementById('ren').onclick = () => { const f = document.getElementById('renf'); f.hidden = !f.hidden; if (!f.hidden) document.getElementById('newname').focus(); };
+      </div>`; }).join('') : `<p class="empty">${entries.length ? 'Nincs a szűrésnek megfelelő tétel.' : 'Még nincs tétel.'}</p>`;
+    document.querySelectorAll('[data-rev]').forEach((b) => (b.onclick = async () => {
+      const label = b.textContent;
+      if (b.dataset.armed !== '1') { b.dataset.armed = '1'; b.textContent = 'Biztos?'; setTimeout(() => { b.dataset.armed = ''; b.textContent = label; }, 3000); return; }
+      try { await api(`/entries/${b.dataset.rev}/reverse`, { method: 'POST', body: {} }); toast('Sztornózva'); viewWorker(id); }
+      catch (err) { toast(err.message); }
+    }));
+  };
+  const chips = (sel, attr, key) => document.querySelectorAll(sel).forEach((b) => (b.onclick = () => {
+    f[key] = b.dataset[attr]; document.querySelectorAll(sel).forEach((x) => x.setAttribute('aria-pressed', x === b)); drawEntries();
+  }));
+  chips('[data-ft]', 'ft', 'type'); chips('[data-fr]', 'fr', 'range');
+  drawYear(); drawEntries();
+  document.getElementById('ren').onclick = () => { const fm = document.getElementById('renf'); fm.hidden = !fm.hidden; if (!fm.hidden) document.getElementById('newname').focus(); };
   document.getElementById('renf').onsubmit = async (e) => {
     e.preventDefault();
     try { await api(`/workers/${id}`, { method: 'PATCH', body: { name: document.getElementById('newname').value } }); toast('Átnevezve'); viewWorker(id); }
     catch (err) { toast(err.message); }
   };
-  document.querySelectorAll('[data-rev]').forEach((b) => (b.onclick = async () => {
-    const label = b.textContent;
-    if (b.dataset.armed !== '1') { b.dataset.armed = '1'; b.textContent = 'Biztos?'; setTimeout(() => { b.dataset.armed = ''; b.textContent = label; }, 3000); return; }
-    try { await api(`/entries/${b.dataset.rev}/reverse`, { method: 'POST', body: {} }); toast('Sztornózva'); viewWorker(id); }
-    catch (err) { toast(err.message); }
-  }));
 }
 
 /* ---------- beállítások ---------- */
@@ -268,6 +379,12 @@ async function viewSettings() {
       <a class="btn ghost" style="text-decoration:none;margin-top:0" href="/api/backup?format=csv" download>Táblázat letöltése (Excel, CSV)</a>
       <a class="btn ghost" style="text-decoration:none" href="/api/backup" download>Teljes mentés letöltése (JSON)</a>
       <p class="tabs-note">Havonta egyszer érdemes letölteni és egy biztonságos helyre menteni.</p></div>
+    <div class="field"><span class="label">Jelszó módosítása</span>
+      <form id="pf"><input class="input" id="pc" type="password" autocomplete="current-password" autocapitalize="off" placeholder="Jelenlegi jelszó" required>
+      <input class="input" id="pn" type="password" autocomplete="new-password" autocapitalize="off" placeholder="Új jelszó (legalább 8 karakter)" minlength="8" required style="margin-top:8px">
+      <input class="input" id="pn2" type="password" autocomplete="new-password" autocapitalize="off" placeholder="Új jelszó mégegyszer" required style="margin-top:8px">
+      <div id="pmsg"></div><button class="btn ghost" type="submit">Jelszó módosítása</button></form></div>
+    <div class="field"><a class="btn ghost" style="text-decoration:none;margin-top:0" href="#/naplo">Napló megtekintése</a></div>
     <div class="field"><span class="label">Telepítés a telefonra</span>
       <p class="tabs-note" style="margin:0">iPhone: Safari → Megosztás → <b>Főképernyőhöz adás</b>. Android: Chrome → ⋮ menü → <b>Alkalmazás telepítése</b>.</p></div>
     <div class="field"><button class="btn ghost" id="out" type="button">Kijelentkezés</button></div>${nav('set')}`;
@@ -285,7 +402,20 @@ async function viewSettings() {
     e.preventDefault();
     try { await api('/templates', { method: 'POST', body: { text: document.getElementById('tt').value } }); viewSettings(); } catch (err) { toast(err.message); }
   };
-  document.getElementById('out').onclick = async () => { await api('/logout', { method: 'POST' }); location.hash = '#/belepes'; };
+  document.getElementById('pf').onsubmit = async (e) => {
+    e.preventDefault();
+    const msg = document.getElementById('pmsg');
+    if (document.getElementById('pn').value !== document.getElementById('pn2').value) { msg.innerHTML = '<div class="err">A két új jelszó nem egyezik.</div>'; return; }
+    try {
+      await api('/password', { method: 'POST', body: { current: document.getElementById('pc').value, next: document.getElementById('pn').value } });
+      e.target.reset(); msg.innerHTML = ''; toast('Jelszó módosítva. A többi eszközön újra be kell lépni.');
+    } catch (err) { msg.innerHTML = `<div class="err">${esc(err.message)}</div>`; }
+  };
+  document.getElementById('out').onclick = async () => {
+    await api('/logout', { method: 'POST' });
+    try { await caches.delete('hovirag-v1'); localStorage.removeItem(QKEY); } catch { /* nincs gyorsítótár */ }
+    location.hash = '#/belepes';
+  };
 }
 
 /* ---------- kimutatás ---------- */
@@ -403,6 +533,68 @@ async function viewReportSummary(q) {
   document.getElementById('print').onclick = () => window.print();
 }
 
+/* ---------- naptár ---------- */
+
+async function viewCalendar(q) {
+  const now = new Date();
+  let month = q.get('m') || `${now.getFullYear()}-${pad(now.getMonth() + 1)}`;
+  const { entries, today: srvToday } = await api(`/calendar?month=${month}`);
+  const [y, mo] = month.split('-').map(Number);
+  const first = new Date(y, mo - 1, 1, 12);
+  const days = new Date(y, mo, 0).getDate();
+  const lead = (first.getDay() + 6) % 7;
+  const byDay = {};
+  entries.forEach((e) => { (byDay[e.date] ||= []).push(e); });
+  const prev = new Date(y, mo - 2, 1, 12), next = new Date(y, mo, 1, 12);
+  const key = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}`;
+  const title = new Intl.DateTimeFormat('hu-HU', { year: 'numeric', month: 'long' }).format(first);
+  const cells = [...Array(lead).fill('<div class="day empty"></div>')];
+  for (let d = 1; d <= days; d++) {
+    const date = `${month}-${pad(d)}`; const n = (byDay[date] || []).length;
+    cells.push(`<button type="button" class="day ${date === srvToday ? 'today' : ''} ${date > srvToday ? 'future' : ''}" data-day="${date}"><span>${d}</span>${n ? `<i>${n}</i>` : ''}</button>`);
+  }
+  $app.innerHTML = `
+    <div class="topbar"><h2>Naptár</h2></div>
+    <div class="calhead"><a class="back" href="#/naptar?m=${key(prev)}" aria-label="Előző hónap">${ICONS.back}</a><b>${title}</b>
+      <a class="back" href="#/naptar?m=${key(next)}" aria-label="Következő hónap" style="transform:scaleX(-1)">${ICONS.back}</a></div>
+    <div class="calgrid"><span>H</span><span>K</span><span>Sze</span><span>Cs</span><span>P</span><span>Szo</span><span>V</span>${cells.join('')}</div>
+    <p class="tabs-note">A számok azt mutatják, hányan vesznek ki szabadidőt aznap. Koppints egy napra a részletekért.</p>
+    <div id="dd" class="upcoming" hidden></div>${nav('cal')}`;
+  const show = (date) => {
+    const list = byDay[date] || [];
+    const box = document.getElementById('dd'); box.hidden = false;
+    box.innerHTML = `<span class="label">${fullDate(date)}</span>${list.length ? list.map((e) => `<a href="#/dolgozo/${e.worker_id}"><b>${fmt(-e.minutes)}</b><span>${esc(e.name)}${e.note ? ` · ${esc(e.note)}` : ''}</span><em></em></a>`).join('') : '<p class="tabs-note" style="margin:0">Ezen a napon senki nem vesz ki szabadidőt.</p>'}`;
+  };
+  document.querySelectorAll('[data-day]').forEach((b) => (b.onclick = () => show(b.dataset.day)));
+  if (byDay[srvToday]) show(srvToday);
+}
+
+/* ---------- napló ---------- */
+
+async function viewAudit() {
+  const { log, workers } = await api('/audit');
+  const name = (id) => workers[id] || `#${id}`;
+  const when = (s) => new Intl.DateTimeFormat('hu-HU', { timeZone: 'Europe/Budapest', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }).format(new Date(s.replace(' ', 'T') + 'Z'));
+  const text = (r) => {
+    const d = r.detail || {};
+    switch (r.action) {
+      case 'worker.create': return `Dolgozó felvéve: ${esc(d.name)}${d.opening ? ` (nyitó: ${fmt(d.opening)})` : ''}`;
+      case 'worker.update': return d.name !== undefined ? `Átnevezve: ${esc(d.name)}` : `${d.active ? 'Aktiválva' : 'Inaktívvá téve'}: ${esc(name(d.id))}`;
+      case 'entry.create': return `Rögzítve: ${(d.workerIds || []).map((x) => esc(name(x))).join(', ')} · ${fmt(d.minutes, true)} · ${dotted(d.date)}${d.overrideSigned ? ' · <b>aláírt időszakba</b>' : ''}${d.offline ? ' · offline rögzítve' : ''}`;
+      case 'entry.undo': return `Visszavonva (törölve): ${(d.ids || []).length} tétel`;
+      case 'entry.reverse': return `Sztornó rögzítve (#${d.reverses} tételhez)`;
+      case 'signature.create': return `Aláírás rögzítve: ${esc(name(d.wid))} · ${dotted(d.from)} – ${dotted(d.to)}`;
+      case 'signature.delete': return 'Aláírás visszavonva';
+      case 'password.change': return 'Jelszó módosítva';
+      case 'login.fail': return `Sikertelen belépés (${esc(d.ip)})`;
+      default: return esc(r.action);
+    }
+  };
+  $app.innerHTML = `<div class="topbar"><a class="back" href="#/beallitasok" aria-label="Vissza">${ICONS.back}</a><h2>Napló</h2></div>
+    <p class="tabs-note">Az utolsó ${log.length} esemény, az újabbak elöl.</p>
+    <div class="entries">${log.map((r) => `<div class="entry ${r.action === 'login.fail' ? 'dim' : ''}"><div class="meta"><b>${text(r)}</b><span>${when(r.at)}</span></div></div>`).join('') || '<p class="empty">Még nincs bejegyzés.</p>'}</div>${nav('set')}`;
+}
+
 /* ---------- útvonalak ---------- */
 
 async function route() {
@@ -416,6 +608,8 @@ async function route() {
     if (path === '/kimutatas/nyomtatas') return await viewReportPrint(q);
     if (path === '/kimutatas/osszesito') return await viewReportSummary(q);
     if (path === '/beallitasok') return await viewSettings();
+    if (path === '/naptar') return await viewCalendar(q);
+    if (path === '/naplo') return await viewAudit();
     const m = path.match(/^\/dolgozo\/(\d+)$/);
     if (m) return await viewWorker(m[1]);
     return await viewList();
@@ -424,4 +618,12 @@ async function route() {
   }
 }
 addEventListener('hashchange', route);
-route();
+
+const $net = document.getElementById('net');
+const setNet = () => { if ($net) $net.hidden = navigator.onLine; };
+addEventListener('online', () => { setNet(); flushQueue(); });
+addEventListener('offline', setNet);
+setNet();
+route().then(() => flushQueue());
+
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => { /* nem baj, online továbbra is működik */ });
