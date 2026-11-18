@@ -114,7 +114,7 @@ async function viewNew(preselect) {
     <div class="field"><label for="n">Megjegyzés</label><textarea class="input" id="n" maxlength="300" placeholder="Pl. szülői értekezlet, rendezvény…"></textarea></div>
     <div class="preview"><span>Új egyenleg</span><span id="pv"></span></div>
     <div id="msg"></div>
-    <button class="btn" id="save" type="submit">Mentés</button></form>${nav('')}`;
+    </form><div class="savebar"><button class="btn" id="save" type="submit" form="f">Mentés</button></div>`;
   const $ = (id) => document.getElementById(id);
   $('w').value = st.w;
   const minutes = () => st.h * 60 + st.m;
