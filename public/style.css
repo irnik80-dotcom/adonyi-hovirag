@@ -1,3 +1,4 @@
+[hidden]{display:none!important}
 :root{
   --bg:#EEF3EC;--surface:#fff;--surface-2:#E3ECE0;--ink:#16261F;--ink-2:#5B6B62;--line:#D5DFD2;
   --green:#1E4D3B;--green-ink:#F2F7EE;--lime:#CFEA6A;--coral:#FF6F4E;--coral-ink:#fff;--pill:rgba(255,255,255,.16);
@@ -139,3 +140,42 @@ input[type=date].input::-webkit-date-and-time-value{text-align:left;margin:0}
 
 .sheet td:first-child,.sheet .meta b{white-space:nowrap}
 @media (max-width:520px){.sheet td{padding:7px 4px}.sheet td:nth-child(2){min-width:90px}}
+
+/* v2 */
+.logo{width:64px;height:64px;border-radius:20px;background:#1E4D3B;color:#CFEA6A;display:grid;place-items:center;margin-bottom:16px}
+
+.logo svg{width:38px}
+.hello small{letter-spacing:.04em}
+.card .who .status{display:block;font-size:12px;margin-top:3px}
+.status{font-size:12.5px;font-weight:600}
+.status.ok{color:var(--pos-fg)}
+.status.warn{color:var(--neg-fg)}
+.upcoming{margin-top:14px;background:var(--surface);border:1px solid var(--line);border-radius:20px;padding:12px 14px}
+.upcoming .label{margin-bottom:4px}
+.upcoming a{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:baseline;padding:8px 0;border-top:1px solid var(--line);text-decoration:none;color:inherit;font-size:14px}
+.upcoming a:first-of-type{border-top:0}
+.upcoming a b{font-weight:600;color:var(--ink-2);min-width:56px}
+.upcoming a em{font-style:normal;font-weight:700;font-family:var(--font-d)}
+.upcoming a span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.check{display:flex;align-items:center;gap:10px;padding:10px 4px;font-size:15px}
+.check input{width:22px;height:22px;accent-color:var(--green);flex:none}
+.check.multi{padding-top:12px;color:var(--ink-2);font-weight:500}
+.checks{max-height:260px;overflow:auto;background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:4px 12px}
+.entry.planned{border-style:dashed}
+.signrow{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:-12px 0 24px;padding:10px 12px;background:var(--surface);border:1px solid var(--line);border-radius:14px}
+.signrow .label{margin:0;flex:1 1 100%}
+.signrow .input{flex:1;min-width:150px;width:auto}
+.signrow .status{flex:1}
+.set-item em{font-style:normal}
+.sheet .sum th:first-child,.sheet .sum td:first-child{white-space:normal}
+.sheet .sum td,.sheet .sum th{padding:6px 5px;font-size:12px}
+.sheet .sum tfoot td{border-top:2px solid #1E4D3B;border-bottom:0;font-weight:700;padding-top:9px}
+.sheet .sum td:first-child{white-space:normal}
+#toast{display:flex;align-items:center;gap:14px}
+#toast[hidden]{display:none}
+#toast button{border:0;background:var(--lime);color:#16261F;font-weight:700;border-radius:10px;padding:6px 12px}
+.sheet .sum{font-size:12px}
+@media (max-width:520px){.sheet .sum td,.sheet .sum th{font-size:10.5px;padding:6px 3px}}
+
+.sheet .unit{margin:0 0 6px;color:#5B6B62;font-size:10.5px}
+.sheet .sum .r{font-variant-numeric:tabular-nums}

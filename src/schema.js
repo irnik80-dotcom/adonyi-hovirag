@@ -26,4 +26,21 @@ export const SCHEMA = [
     action TEXT NOT NULL,
     detail TEXT NOT NULL DEFAULT ''
   )`,
+  // Aláírt kimutatások nyilvántartása (a papír aláírása megtörtént). Nem könyvelési tétel, törölhető.
+  `CREATE TABLE IF NOT EXISTS signatures (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    worker_id INTEGER NOT NULL REFERENCES workers(id),
+    from_date TEXT NOT NULL,
+    to_date TEXT NOT NULL,
+    signed_on TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )`,
+  `CREATE INDEX IF NOT EXISTS signatures_worker ON signatures(worker_id, to_date)`,
 ];
+
+// Gyakori megjegyzések. Az alapértékeket csak a tábla első létrehozásakor töltjük be.
+export const TEMPLATES_TABLE = `CREATE TABLE IF NOT EXISTS note_templates (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  text TEXT NOT NULL
+)`;
+export const DEFAULT_TEMPLATES = ['Szülői értekezlet', 'Nyílt nap', 'Helyettesítés', 'Rendezvény', 'Ünnepség'];
