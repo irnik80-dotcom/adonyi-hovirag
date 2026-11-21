@@ -129,6 +129,11 @@ async function runSchema(env) {
   await env.DB.prepare(GROUPS_TABLE).run();
   if (!hadGroups) {
     await env.DB.batch(DEFAULT_GROUPS.map((t) => env.DB.prepare('INSERT INTO staff_groups (name) VALUES (?)').bind(t)));
+    await putSetting(env, 'seed_egyeb', '1');
+  } else if (!(await getSetting(env, 'seed_egyeb'))) {
+    // Meglévő adatbázisban az „Egyéb” (nem nevelő munka) munkakört egyszer vesszük fel; ha később törlik, nem kerül vissza.
+    if (!(await env.DB.prepare("SELECT 1 AS x FROM staff_groups WHERE name = 'Egyéb'").first())) await env.DB.prepare("INSERT INTO staff_groups (name) VALUES ('Egyéb')").run();
+    await putSetting(env, 'seed_egyeb', '1');
   }
 }
 const ensureSchema = (env) => (schemaReady ??= runSchema(env).catch((e) => { schemaReady = undefined; throw e; }));
@@ -216,6 +221,12 @@ export default {
         const name = cleanText(b.name, 80);
         if (!name) return fail(400, 'Add meg a dolgozó nevét.');
         const opening = Math.trunc(Number(b.opening_minutes) || 0);
+        const wantGroups = (Array.isArray(b.group_ids) ? b.group_ids : []).map(Number).filter(Number.isInteger).slice(0, 1);
+        const groupCount = (await env.DB.prepare('SELECT COUNT(*) AS n FROM staff_groups').first()).n;
+        if (groupCount > 0) {
+          if (!wantGroups.length) return fail(400, 'Válassz munkakört a dolgozónak.');
+          if (!(await env.DB.prepare('SELECT id FROM staff_groups WHERE id = ?').bind(wantGroups[0]).first())) return fail(400, 'Nincs ilyen munkakör.');
+        }
         const w = await env.DB.prepare('INSERT INTO workers (name) VALUES (?) RETURNING id').bind(name).first();
         if (opening !== 0) {
           const date = isDate(b.date) ? b.date : today;
@@ -336,21 +347,30 @@ export default {
         const newNote = b.note !== undefined ? cleanText(b.note, 300) : e.note;
         const newDate = b.date !== undefined ? String(b.date) : e.date;
         if (!isDate(newDate)) return fail(400, 'Hibás dátum.');
+        // Az időtartam pozitív egészként érkezik; az előjelet a tétel típusa adja (szabadidő: negatív, nyitó: marad).
+        let newMin = e.minutes;
+        if (b.minutes !== undefined) {
+          const m = Math.trunc(Number(b.minutes));
+          if (!Number.isInteger(m) || m <= 0 || m > 60 * 24 * 31) return fail(400, 'Adj meg 0-nál nagyobb időtartamot.');
+          newMin = e.kind === 'use' ? -m : e.kind === 'opening' ? Math.sign(e.minutes) * m : m;
+        }
         const dateChanged = newDate !== e.date;
         const noteChanged = newNote !== e.note;
-        if (!dateChanged && !noteChanged) return json({ ok: true });
-        if (dateChanged) {
-          if (e.kind === 'reversal') return fail(400, 'A sztornó tétel dátuma nem módosítható.');
-          if (await env.DB.prepare('SELECT 1 AS x FROM entries WHERE reverses_id = ?').bind(id).first()) return fail(409, 'A sztornózott tétel dátuma nem módosítható.');
-          if (e.kind === 'credit' && newDate > today) return fail(400, 'Túlórát csak már megtörtént napra lehet rögzíteni.');
+        const minChanged = newMin !== e.minutes;
+        if (!dateChanged && !noteChanged && !minChanged) return json({ ok: true });
+        if (dateChanged || minChanged) {
+          if (e.kind === 'reversal') return fail(400, 'A sztornó tétel nem módosítható, csak a megjegyzése.');
+          if (await env.DB.prepare('SELECT 1 AS x FROM entries WHERE reverses_id = ?').bind(id).first()) return fail(409, 'A sztornózott tétel dátuma és időtartama nem módosítható, csak a megjegyzése.');
         }
+        if (dateChanged && e.kind === 'credit' && newDate > today) return fail(400, 'Túlórát csak már megtörtént napra lehet rögzíteni.');
         const sig = await env.DB.prepare('SELECT MAX(to_date) AS t FROM signatures WHERE worker_id = ?').bind(e.worker_id).first();
         const touchesSigned = Boolean(sig?.t) && (e.date <= sig.t || (dateChanged && newDate <= sig.t));
         if (touchesSigned && !b.confirm_signed) {
           return json({ error: 'Az időszak már alá van írva.', needs_confirm: true, workers: [{ name: '', signed_to: sig.t }] }, 409);
         }
-        await env.DB.prepare('UPDATE entries SET note = ?, date = ? WHERE id = ?').bind(newNote, newDate, id).run();
+        await env.DB.prepare('UPDATE entries SET note = ?, date = ?, minutes = ? WHERE id = ?').bind(newNote, newDate, newMin, id).run();
         if (noteChanged) await audit(env, 'entry.note', { id, workerId: e.worker_id, from: e.note, to: newNote, overrideSigned: touchesSigned || undefined });
+        if (minChanged) await audit(env, 'entry.minutes', { id, workerId: e.worker_id, from: e.minutes, to: newMin, overrideSigned: touchesSigned || undefined });
         if (dateChanged) await audit(env, 'entry.date', { id, workerId: e.worker_id, from: e.date, to: newDate, overrideSigned: touchesSigned || undefined });
         return json({ ok: true });
       }

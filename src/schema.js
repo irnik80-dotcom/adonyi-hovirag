@@ -69,7 +69,7 @@ export const GROUPS_TABLE = `CREATE TABLE IF NOT EXISTS staff_groups (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT NOT NULL
 )`;
-export const DEFAULT_GROUPS = ['Pedagógusok', 'Pedagógiai asszisztensek', 'Dajkák'];
+export const DEFAULT_GROUPS = ['Pedagógusok', 'Pedagógiai asszisztensek', 'Dajkák', 'Egyéb'];
 
 // Gyakori megjegyzések. Az alapértékeket csak a tábla első létrehozásakor töltjük be.
 export const TEMPLATES_TABLE = `CREATE TABLE IF NOT EXISTS note_templates (

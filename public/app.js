@@ -414,14 +414,18 @@ async function viewWorker(id) {
       return `<div class="entry ${e.kind === 'reversal' || e.reversed ? 'dim' : ''} ${planned ? 'planned' : ''}">
         <div class="bal ${balClass(e.minutes)}">${fmt(e.minutes, true)}</div>
         <div class="meta"><b>${esc(e.note || KIND[e.kind])}</b><span>${fullDate(e.date)} · ${planned ? 'Tervezett szabadidő' : KIND[e.kind]}${e.reversed ? ' · sztornózva' : ''}</span></div>
-        <div class="eb"><button class="undo" data-edit="${e.id}" aria-label="Tétel szerkesztése (dátum, megjegyzés)">✎</button>${e.kind !== 'reversal' && !e.reversed ? `<button class="undo" data-rev="${e.id}">${planned ? 'Lemondás' : 'Sztornó'}</button>` : ''}</div>
+        <div class="eb"><button class="undo" data-edit="${e.id}" aria-label="Tétel szerkesztése (dátum, időtartam, megjegyzés)">✎</button>${e.kind !== 'reversal' && !e.reversed ? `<button class="undo" data-rev="${e.id}">${planned ? 'Lemondás' : 'Sztornó'}</button>` : ''}</div>
       </div>`; }).join('') : `<p class="empty">${entries.length ? 'Nincs a szűrésnek megfelelő tétel.' : 'Még nincs tétel.'}</p>`;
     document.querySelectorAll('[data-edit]').forEach((b) => (b.onclick = () => {
       const e = entries.find((x) => x.id === +b.dataset.edit); const row = b.closest('.entry');
       const dateLocked = e.kind === 'reversal' || e.reversed;
       row.innerHTML = `<form class="editf"><label class="label" for="ed">Dátum</label>
         <input class="input" id="ed" type="date" name="date" value="${e.date}" ${e.kind === 'credit' ? `max="${srvToday}"` : ''} ${dateLocked ? 'disabled' : ''} required>
-        ${dateLocked ? '<p class="tabs-note" style="margin:4px 0 0">Sztornózott vagy sztornó tétel dátuma nem módosítható.</p>' : ''}
+        ${dateLocked ? '<p class="tabs-note" style="margin:4px 0 0">Sztornózott vagy sztornó tétel dátuma és időtartama nem módosítható, csak a megjegyzése.</p>' : ''}
+        <span class="label" style="margin-top:10px;display:block">Időtartam</span>
+        <div class="row"><input class="input" type="number" inputmode="numeric" min="0" max="999" name="h" value="${Math.floor(Math.abs(e.minutes) / 60)}" aria-label="Óra" ${dateLocked ? 'disabled' : ''}>
+          <input class="input" type="number" inputmode="numeric" min="0" max="59" name="m" value="${Math.abs(e.minutes) % 60}" aria-label="Perc" ${dateLocked ? 'disabled' : ''}></div>
+        <p class="tabs-note" style="margin:4px 0 0">óra · perc</p>
         <label class="label" for="en" style="margin-top:10px">Megjegyzés</label>
         <input class="input" id="en" name="note" maxlength="300" value="${esc(e.note)}" aria-label="Megjegyzés"><div class="ew"></div>
         <div class="row" style="margin-top:8px"><button class="btn small" type="submit">Mentés</button><button class="btn ghost small" type="button" data-cancel>Mégsem</button></div></form>`;
@@ -430,7 +434,12 @@ async function viewWorker(id) {
       form.onsubmit = async (ev) => {
         ev.preventDefault();
         const body = { note: form.note.value, confirm_signed: confirm };
-        if (!dateLocked) body.date = form.date.value;
+        if (!dateLocked) {
+          body.date = form.date.value;
+          const total = (+form.h.value || 0) * 60 + (+form.m.value || 0);
+          if (total <= 0) { toast('Adj meg 0-nál nagyobb időtartamot.'); return; }
+          body.minutes = total;
+        }
         try { await api(`/entries/${e.id}`, { method: 'PATCH', body }); toast('Módosítva'); viewWorker(id); }
         catch (err) {
           if (err.needsConfirm) { confirm = true; form.querySelector('.ew').innerHTML = '<div class="warnbox">Ez az időszak már alá van írva, a papír tartalma megváltozna.</div>'; form.querySelector('button[type=submit]').textContent = 'Mégis módosítom'; }
@@ -470,7 +479,8 @@ async function viewSettings() {
     <div class="topbar"><h2>Beállítások</h2></div>
     <form id="f"><div class="field"><label for="nm">Új dolgozó</label>
       <input class="input" id="nm" placeholder="Teljes név" maxlength="80" required></div>
-      ${groups.length ? `<div class="field"><span class="label">Munkakör</span><div class="quick chips" id="ng" style="margin-top:0">${groups.map((g) => `<button type="button" data-ng="${g.id}" aria-pressed="false">${esc(g.name)}</button>`).join('')}</div></div>` : ''}
+      ${groups.length ? `<div class="field"><span class="label">Munkakör (kötelező)</span><div class="quick chips" id="ng" style="margin-top:0">${groups.map((g) => `<button type="button" data-ng="${g.id}" aria-pressed="false">${esc(g.name)}</button>`).join('')}</div>
+        <p class="tabs-note" style="margin:6px 0 0">Az <b>Egyéb</b> a nem nevelő munkát végző kollégák (például konyhai, takarító vagy karbantartó dolgozó) munkaköre.</p></div>` : ''}
       <div class="field"><span class="label">Nyitó egyenleg a papírról</span><div class="row">
         <input class="input" id="oh" type="number" inputmode="numeric" min="0" placeholder="óra" aria-label="Nyitó óra">
         <input class="input" id="om" type="number" inputmode="numeric" min="0" max="59" placeholder="perc" aria-label="Nyitó perc"></div></div>
@@ -514,6 +524,7 @@ async function viewSettings() {
   }));
   $('f').onsubmit = async (e) => {
     e.preventDefault();
+    if (groups.length && newGroups.size !== 1) { $('msg').innerHTML = '<div class="err">Válassz munkakört a dolgozónak.</div>'; $('ng').scrollIntoView({ block: 'center', behavior: 'smooth' }); return; }
     const min = (+$('oh').value || 0) * 60 + (+$('om').value || 0);
     try { await api('/workers', { method: 'POST', body: { name: $('nm').value, opening_minutes: min, date: today(), group_ids: [...newGroups] } }); toast('Felvéve'); viewSettings(); }
     catch (err) { $('msg').innerHTML = `<div class="err">${esc(err.message)}</div>`; }
@@ -775,6 +786,7 @@ async function viewAudit() {
       case 'signature.delete': return 'Aláírás visszavonva';
       case 'signature.bulk': return `Aláírások rögzítve: ${d.count} dolgozó · ${dotted(d.from)} – ${dotted(d.to)}`;
       case 'entry.date': return d.deleted ? `Tétel dátuma módosítva (törölt dolgozó, #${d.workerId})` : `Tétel dátuma módosítva: ${esc(name(d.workerId))} · ${dotted(d.from)} → ${dotted(d.to)}${d.overrideSigned ? ' · <b>aláírt időszakban</b>' : ''}`;
+      case 'entry.minutes': return d.deleted ? `Tétel időtartama módosítva (törölt dolgozó, #${d.workerId})` : `Időtartam módosítva: ${esc(name(d.workerId))} · ${fmt(d.from, true)} → ${fmt(d.to, true)}${d.overrideSigned ? ' · <b>aláírt időszakban</b>' : ''}`;
       case 'entry.note': return d.deleted ? `Megjegyzés módosítva (törölt dolgozó, #${d.workerId})` : `Megjegyzés módosítva: ${esc(name(d.workerId))} · „${esc(d.from)}” → „${esc(d.to)}”${d.overrideSigned ? ' · <b>aláírt időszakban</b>' : ''}`;
       case 'worker.groups': return `Munkakör módosítva: ${esc(name(d.id))}`;
       case 'group.create': return `Munkakör létrehozva: ${esc(d.name)}`;
