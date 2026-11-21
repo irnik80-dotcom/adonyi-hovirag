@@ -6,6 +6,7 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 const pad = (n) => String(n).padStart(2, '0');
 const iso = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 const today = () => iso(new Date());
+const openingDefault = () => (today() < OPENING_CUTOFF ? OPENING_START : today());
 const dotted = (s) => s.replace(/-/g, '. ') + '.';
 
 export function fmt(minutes, signed = false) {
@@ -21,6 +22,8 @@ const shortDate = (s) => (s ? hu.format(new Date(s + 'T12:00:00')) : '');
 const fullDate = (s) => huFull.format(new Date(s + 'T12:00:00'));
 const initials = (n) => n.split(/\s+/).filter(Boolean).slice(0, 2).map((p) => p[0].toUpperCase()).join('');
 const isAct = (w) => w.active === 1;
+// A nyitó egyenleg alapértelmezett dátuma: induláskor (2026. 12. 21-ig) a nevelési év kezdete, utána a mai nap.
+const OPENING_START = '2026-09-01', OPENING_CUTOFF = '2026-12-21';
 const gidsOf = (w) => (w.group_ids ? String(w.group_ids).split(',').map(Number) : []);
 const bigTime = (m) => `${m < 0 ? '−' : ''}${Math.floor(Math.abs(m) / 60)}<span>ó</span>${pad(Math.abs(m) % 60)}<span>p</span>`;
 
@@ -566,9 +569,13 @@ async function viewSettings() {
       <div class="field"><span class="label">Nyitó egyenleg a papírról</span><div class="row">
         <input class="input" id="oh" type="number" inputmode="numeric" min="0" placeholder="óra" aria-label="Nyitó óra">
         <input class="input" id="om" type="number" inputmode="numeric" min="0" max="59" placeholder="perc" aria-label="Nyitó perc"></div></div>
+      <div class="field"><label for="od">Nyitó egyenleg dátuma</label><input class="input" id="od" type="date" value="${openingDefault()}" max="${today()}" required>
+        <p class="tabs-note" style="margin:6px 0 0">Ettől a naptól számít az átvett egyenleg. Induláskor szeptember 1., később a mai nap az alapérték.</p></div>
       <div id="msg"></div><button class="btn" type="submit">Dolgozó felvétele</button></form>
     <details class="field bulkimp"><summary class="label" style="cursor:pointer">Dolgozók tömeges felvétele (induláshoz)</summary>
       <p class="tabs-note" style="margin:6px 0 8px">Soronként egy dolgozó: <b>Név; Munkakör; Nyitó egyenleg</b>. Excelből is beilleszthető (tabulátorral elválasztva). Nyitó egyenleg: <b>12:30</b>, <b>12 ó 30 p</b> vagy <b>12,5</b> (óra). Munkakör például: Pedagógus, Asszisztens, Dajka, Egyéb.</p>
+      <label class="label" for="bdate">Nyitó egyenleg dátuma (mindenkinél)</label>
+      <input class="input" id="bdate" type="date" value="${openingDefault()}" max="${today()}" style="margin-bottom:10px">
       <textarea class="input" id="bulk" rows="6" placeholder="Kovács Ágnes; Pedagógus; 12:30&#10;Tóth Mária; Dajka; 7:10&#10;Nagy Zsuzsanna; Asszisztens; 0"></textarea>
       <button class="btn ghost" type="button" id="bchk">Ellenőrzés</button><div id="bprev"></div></details>
     <div class="field"><span class="label">Dolgozók</span>${workers.map((w) => `
@@ -612,7 +619,7 @@ async function viewSettings() {
     e.preventDefault();
     if (groups.length && newGroups.size !== 1) { $('msg').innerHTML = '<div class="err">Válassz munkakört a dolgozónak.</div>'; $('ng').scrollIntoView({ block: 'center', behavior: 'smooth' }); return; }
     const min = (+$('oh').value || 0) * 60 + (+$('om').value || 0);
-    try { await api('/workers', { method: 'POST', body: { name: $('nm').value, opening_minutes: min, date: today(), group_ids: [...newGroups] } }); toast('Felvéve'); viewSettings(); }
+    try { await api('/workers', { method: 'POST', body: { name: $('nm').value, opening_minutes: min, date: $('od').value || openingDefault(), group_ids: [...newGroups] } }); toast('Felvéve'); viewSettings(); }
     catch (err) { $('msg').innerHTML = `<div class="err">${esc(err.message)}</div>`; }
   };
   document.querySelectorAll('[data-st]').forEach((b) => (b.onclick = async () => {
@@ -686,7 +693,7 @@ async function viewSettings() {
     const go = document.getElementById('bgo');
     if (go) go.onclick = async () => {
       go.disabled = true;
-      try { const r = await api('/workers/bulk', { method: 'POST', body: { date: today(), rows: ok.map((x) => ({ name: x.name, group_id: x.g?.id, opening_minutes: x.min })) } }); toast(`${r.added} dolgozó felvéve`); viewSettings(); }
+      try { const r = await api('/workers/bulk', { method: 'POST', body: { date: $('bdate').value || openingDefault(), rows: ok.map((x) => ({ name: x.name, group_id: x.g?.id, opening_minutes: x.min })) } }); toast(`${r.added} dolgozó felvéve`); viewSettings(); }
       catch (err) { toast(err.message); go.disabled = false; }
     };
   };

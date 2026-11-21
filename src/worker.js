@@ -229,6 +229,7 @@ export default {
         const b = await request.json();
         const name = cleanText(b.name, 80);
         if (!name) return fail(400, 'Add meg a dolgozó nevét.');
+        if (b.date !== undefined && (!isDate(b.date) || b.date > today)) return fail(400, 'A nyitó egyenleg dátuma nem lehet jövőbeli vagy hibás.');
         const opening = Math.trunc(Number(b.opening_minutes) || 0);
         const wantGroups = (Array.isArray(b.group_ids) ? b.group_ids : []).map(Number).filter(Number.isInteger).slice(0, 1);
         const groupCount = (await env.DB.prepare('SELECT COUNT(*) AS n FROM staff_groups').first()).n;
@@ -320,6 +321,7 @@ export default {
           if (groupIds.size && !groupIds.has(r.gid)) return fail(400, `${r.name}: válassz munkakört.`);
           if (Math.abs(r.open) > 60 * 24 * 365) return fail(400, `${r.name}: túl nagy nyitó egyenleg.`);
         }
+        if (b.date !== undefined && (!isDate(b.date) || b.date > today)) return fail(400, 'A nyitó egyenleg dátuma nem lehet jövőbeli vagy hibás.');
         const date = isDate(b.date) ? b.date : today;
         const ins = await env.DB.batch(rows.map((r) => env.DB.prepare('INSERT INTO workers (name) VALUES (?) RETURNING id').bind(r.name)));
         const ids = ins.map((x) => x.results[0].id);
