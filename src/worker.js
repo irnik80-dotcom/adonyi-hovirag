@@ -326,21 +326,32 @@ export default {
         return json({ ok: true });
       }
 
-      // Megjegyzés javítása (az időtartam és a dátum nem módosítható, hibánál sztornó kell)
+      // Tétel javítása: a megjegyzés és a dátum módosítható. Az időtartamot sztornóval kell javítani.
       m = path.match(/^\/api\/entries\/(\d+)$/);
       if (m && method === 'PATCH') {
         const id = Number(m[1]);
         const b = await request.json();
         const e = await env.DB.prepare('SELECT * FROM entries WHERE id = ?').bind(id).first();
         if (!e) return fail(404, 'Nincs ilyen tétel.');
-        const note = cleanText(b.note, 300);
-        if (note === e.note) return json({ ok: true });
+        const newNote = b.note !== undefined ? cleanText(b.note, 300) : e.note;
+        const newDate = b.date !== undefined ? String(b.date) : e.date;
+        if (!isDate(newDate)) return fail(400, 'Hibás dátum.');
+        const dateChanged = newDate !== e.date;
+        const noteChanged = newNote !== e.note;
+        if (!dateChanged && !noteChanged) return json({ ok: true });
+        if (dateChanged) {
+          if (e.kind === 'reversal') return fail(400, 'A sztornó tétel dátuma nem módosítható.');
+          if (await env.DB.prepare('SELECT 1 AS x FROM entries WHERE reverses_id = ?').bind(id).first()) return fail(409, 'A sztornózott tétel dátuma nem módosítható.');
+          if (e.kind === 'credit' && newDate > today) return fail(400, 'Túlórát csak már megtörtént napra lehet rögzíteni.');
+        }
         const sig = await env.DB.prepare('SELECT MAX(to_date) AS t FROM signatures WHERE worker_id = ?').bind(e.worker_id).first();
-        if (sig?.t && e.date <= sig.t && !b.confirm_signed) {
+        const touchesSigned = Boolean(sig?.t) && (e.date <= sig.t || (dateChanged && newDate <= sig.t));
+        if (touchesSigned && !b.confirm_signed) {
           return json({ error: 'Az időszak már alá van írva.', needs_confirm: true, workers: [{ name: '', signed_to: sig.t }] }, 409);
         }
-        await env.DB.prepare('UPDATE entries SET note = ? WHERE id = ?').bind(note, id).run();
-        await audit(env, 'entry.note', { id, workerId: e.worker_id, from: e.note, to: note, overrideSigned: sig?.t && e.date <= sig.t ? true : undefined });
+        await env.DB.prepare('UPDATE entries SET note = ?, date = ? WHERE id = ?').bind(newNote, newDate, id).run();
+        if (noteChanged) await audit(env, 'entry.note', { id, workerId: e.worker_id, from: e.note, to: newNote, overrideSigned: touchesSigned || undefined });
+        if (dateChanged) await audit(env, 'entry.date', { id, workerId: e.worker_id, from: e.date, to: newDate, overrideSigned: touchesSigned || undefined });
         return json({ ok: true });
       }
 
