@@ -903,6 +903,7 @@ async function viewAudit() {
     const d = r.detail || {};
     switch (r.action) {
       case 'worker.create': return `Dolgozó felvéve: ${d.name ? esc(d.name) : `törölt dolgozó (#${d.id})`}${d.opening ? ` (nyitó: ${fmt(d.opening)})` : ''}`;
+      case 'migration.opening': return `Nyitó egyenlegek dátuma ${dotted(d.date)}-ra állítva (${d.opening} tétel), ${d.signatures} aláírás-jelölés visszavonva${d.earlier ? `. Figyelem: ${d.earlier} nem nyitó tétel dátuma korábbi, mint ${dotted(d.date)}` : ''}`;
       case 'worker.bulk': return `Dolgozók tömeges felvétele: ${d.count} fő`;
       case 'worker.delete': return `Dolgozó véglegesen törölve (#${d.id}, ${d.entries} tétel)`;
       case 'worker.update': return d.deleted ? `Dolgozó módosítva (törölt dolgozó, #${d.id})` : d.name !== undefined ? `Átnevezve: ${esc(d.name)}` : d.status === 'parked' ? `Parkoltatva: ${esc(name(d.id))}${d.note ? ` (${esc(d.note)})` : ''}` : d.status === 'left' || d.active === false ? `Kilépettnek jelölve: ${esc(name(d.id))}` : `Aktiválva: ${esc(name(d.id))}`;

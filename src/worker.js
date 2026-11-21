@@ -135,6 +135,15 @@ async function runSchema(env) {
     if (!(await env.DB.prepare("SELECT 1 AS x FROM staff_groups WHERE name = 'Egyéb'").first())) await env.DB.prepare("INSERT INTO staff_groups (name) VALUES ('Egyéb')").run();
     await putSetting(env, 'seed_egyeb', '1');
   }
+  // Egyszeri javítás: minden nyitó egyenleg dátuma a nevelési év kezdete (2026. 09. 01.), és a korábbi aláírás-jelölések visszavonva.
+  // A papírról átvett egyenleg így az első valódi tétel elé kerül. A flag miatt csak egyszer fut le.
+  if (!(await getSetting(env, 'mig_opening_sep1'))) {
+    await putSetting(env, 'mig_opening_sep1', '1');
+    const upd = await env.DB.prepare("UPDATE entries SET date = '2026-09-01' WHERE kind = 'opening' AND date <> '2026-09-01'").run();
+    const sig = await env.DB.prepare('DELETE FROM signatures').run();
+    const early = (await env.DB.prepare("SELECT COUNT(*) AS n FROM entries WHERE kind <> 'opening' AND date < '2026-09-01'").first()).n;
+    await audit(env, 'migration.opening', { date: '2026-09-01', opening: upd.meta?.changes ?? 0, signatures: sig.meta?.changes ?? 0, earlier: early });
+  }
 }
 const ensureSchema = (env) => (schemaReady ??= runSchema(env).catch((e) => { schemaReady = undefined; throw e; }));
 
