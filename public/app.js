@@ -232,7 +232,7 @@ async function viewNew(preselect) {
   const [{ workers, today: srvToday, groups }, { templates }] = await Promise.all([api('/workers'), api('/templates')]);
   const active = workers.filter(isAct);
   if (!active.length) { $app.innerHTML = `<p class="empty">Előbb vegyél fel dolgozót a Beállításokban.</p>${nav('set')}`; return; }
-  const st = { kind: 'credit', h: 0, m: 30, mode: 'dur', t1: '16:00', t2: '18:00', multi: false, w: preselect && active.some((w) => w.id === +preselect) ? +preselect : active[0].id, picked: new Set() };
+  const st = { kind: 'credit', h: 0, m: 30, mode: 'dur', t1: '16:00', t2: '18:00', dm: 'one', excl: new Set(), multi: false, w: preselect && active.some((w) => w.id === +preselect) ? +preselect : active[0].id, picked: new Set() };
   $app.innerHTML = `
     <div class="topbar"><a class="back" href="#/" aria-label="Vissza">${ICONS.back}</a><h2>Új tétel</h2></div>
     <form id="f">
@@ -256,7 +256,16 @@ async function viewNew(preselect) {
       <div class="step"><input id="m" type="number" inputmode="numeric" min="0" max="59" aria-label="Perc"><div class="u">perc</div>
         <div class="pm"><button type="button" data-d="m-5" aria-label="Perc csökkentése">−</button><button type="button" data-d="m+5" aria-label="Perc növelése">+</button></div></div></div>
       <div class="quick"><button type="button" data-add="15">+15 p</button><button type="button" data-add="30">+30 p</button><button type="button" data-add="60">+1 ó</button><button type="button" data-add="120">+2 ó</button><button type="button" data-add="480">+8 ó</button></div></div></div>
-    <div class="field"><label for="d">Dátum</label><input class="input" id="d" type="date" value="${srvToday}" required>
+    <div class="field"><span class="label">Melyik nap(ok)?</span>
+      <div class="seg slim" style="margin-bottom:10px"><button type="button" data-dm="one" aria-pressed="true">Egy nap</button><button type="button" data-dm="multi" aria-pressed="false">Több nap</button></div>
+      <div id="d1"><input class="input" id="d" type="date" value="${srvToday}" required aria-label="Dátum"></div>
+      <div id="dm" hidden>
+        <div class="row"><div style="flex:1;min-width:0"><label class="label" for="df">Ettől</label><input class="input" id="df" type="date" value="${srvToday}"></div>
+          <div style="flex:1;min-width:0"><label class="label" for="dt">Eddig</label><input class="input" id="dt" type="date" value="${srvToday}"></div></div>
+        <label class="check"><input type="checkbox" id="wk"><span>Hétvégék kihagyása</span></label>
+        <div class="quick chips" id="days" style="margin-top:0"></div>
+        <p class="tabs-note" id="dsum"></p>
+      </div>
       <p class="tabs-note" id="dnote" hidden></p></div>
     <div class="field"><label for="n">Megjegyzés</label>
       ${templates.length ? `<div class="quick" id="tpl" style="margin:0 0 8px">${templates.map((t) => `<button type="button" data-t="${esc(t.text)}">${esc(t.text)}</button>`).join('')}</div>` : ''}
@@ -270,26 +279,49 @@ async function viewNew(preselect) {
   const timeMinutes = () => { const d = toMin($('t2').value) - toMin($('t1').value); return Number.isFinite(d) && d > 0 ? d : 0; };
   const minutes = () => (st.mode === 'time' ? timeMinutes() : st.h * 60 + st.m);
   const targets = () => (st.multi ? [...st.picked] : [+$('w').value]);
+  const WD = ['v', 'h', 'k', 'sze', 'cs', 'p', 'szo'];
+  // A kijelölt tartomány napjai (legfeljebb 62), a hétvégék kihagyhatók.
+  const rangeDays = () => {
+    const from = $('df').value, to = $('dt').value;
+    if (!from || !to || from > to) return [];
+    const out = []; const d = new Date(from + 'T12:00:00');
+    while (iso(d) <= to && out.length < 62) { const dow = d.getDay(); if (!($('wk').checked && (dow === 0 || dow === 6))) out.push(iso(d)); d.setDate(d.getDate() + 1); }
+    return out;
+  };
+  const dates = () => (st.dm === 'one' ? [$('d').value].filter(Boolean) : rangeDays().filter((x) => !st.excl.has(x)));
+  const renderDays = () => {
+    const ds = rangeDays();
+    $('days').innerHTML = ds.map((x) => { const d = new Date(x + 'T12:00:00'); return `<button type="button" data-day="${x}" aria-pressed="${!st.excl.has(x)}">${d.getMonth() + 1}. ${d.getDate()}. ${WD[d.getDay()]}</button>`; }).join('') || '<span class="tabs-note">Válassz időszakot.</span>';
+    $('days').querySelectorAll('[data-day]').forEach((b) => (b.onclick = () => { st.excl.has(b.dataset.day) ? st.excl.delete(b.dataset.day) : st.excl.add(b.dataset.day); sync(); }));
+  };
   const sync = () => {
     $('h').value = st.h; $('m').value = st.m;
     $('tm').hidden = st.mode !== 'time'; $('dur').hidden = st.mode === 'time';
     document.querySelectorAll('[data-mode]').forEach((b) => b.setAttribute('aria-pressed', b.dataset.mode === st.mode));
     if (st.mode === 'time') $('tmres').textContent = minutes() > 0 ? `Ez ${fmt(minutes())}.` : 'A vége legyen később, mint a kezdés.';
-    const future = st.kind === 'use' && $('d').value > srvToday;
-    $('d').max = st.kind === 'credit' ? srvToday : '';
-    if (st.kind === 'credit' && $('d').value > srvToday) $('d').value = srvToday;
-    $('dnote').hidden = !future; $('dnote').textContent = 'Tervezett szabadidő: az egyenleget csak a kivétel napjától csökkenti.';
+    $('d1').hidden = st.dm === 'multi'; $('dm').hidden = st.dm !== 'multi';
+    document.querySelectorAll('[data-dm]').forEach((b) => b.setAttribute('aria-pressed', b.dataset.dm === st.dm));
+    const cap = st.kind === 'credit' ? srvToday : '';
+    ['d', 'df', 'dt'].forEach((id) => { $(id).max = cap; if (cap && $(id).value > cap) $(id).value = cap; });
+    if ($('dt').value < $('df').value) $('dt').value = $('df').value;
+    $('dt').min = $('df').value;
+    if (st.dm === 'multi') renderDays();
+    const ds = dates(); const n = ds.length;
+    const now = ds.filter((x) => x <= srvToday).length;
+    const future = st.kind === 'use' && ds.some((x) => x > srvToday);
+    $('dnote').hidden = !future; $('dnote').textContent = 'A jövőbeli napok tervezett szabadidők: az egyenleget csak a kivétel napjától csökkentik.';
+    if (st.dm === 'multi') $('dsum').textContent = n ? `${n} nap × ${fmt(minutes())} = ${fmt(n * minutes())}` : 'Nincs kijelölt nap.';
+    const per = st.kind === 'use' ? -minutes() : minutes();
     if (st.multi) {
       $('pl').textContent = 'Összesen';
-      $('pv').innerHTML = `<b>${st.picked.size} dolgozó × ${fmt(minutes())}</b>`;
-      $('save').disabled = minutes() <= 0 || !st.picked.size;
+      $('pv').innerHTML = `<b>${st.picked.size} dolgozó × ${n || 1} nap × ${fmt(minutes())}</b>`;
+      $('save').disabled = minutes() <= 0 || !st.picked.size || !n;
     } else {
       const w = active.find((x) => x.id === +$('w').value);
-      const delta = st.kind === 'use' ? -minutes() : minutes();
-      const next = future ? w.balance : w.balance + delta;
-      $('pl').textContent = future ? 'Egyenleg (nem változik)' : 'Új egyenleg';
-      $('pv').innerHTML = future ? `<b>${fmt(w.balance)}</b>` : `<span style="opacity:.6;text-decoration:line-through">${fmt(w.balance)}</span> → <b>${fmt(next)}</b>`;
-      $('save').disabled = minutes() <= 0;
+      const next = w.balance + per * now;
+      $('pl').textContent = now === 0 ? 'Egyenleg (nem változik)' : n > 1 ? `Új egyenleg (${now} nap)` : 'Új egyenleg';
+      $('pv').innerHTML = now === 0 ? `<b>${fmt(w.balance)}</b>` : `<span style="opacity:.6;text-decoration:line-through">${fmt(w.balance)}</span> → <b>${fmt(next)}</b>`;
+      $('save').disabled = minutes() <= 0 || !n;
     }
     document.querySelectorAll('[data-kind]').forEach((b) => b.setAttribute('aria-pressed', b.dataset.kind === st.kind));
   };
@@ -297,6 +329,8 @@ async function viewNew(preselect) {
   $('h').oninput = () => { st.h = Math.max(0, Math.floor(+$('h').value) || 0); sync(); };
   $('m').oninput = () => { setMin(st.h * 60 + Math.max(0, Math.floor(+$('m').value) || 0)); sync(); };
   $('w').onchange = sync; $('d').onchange = sync; $('t1').oninput = sync; $('t2').oninput = sync;
+  $('df').onchange = () => { st.excl.clear(); sync(); }; $('dt').onchange = () => { st.excl.clear(); sync(); }; $('wk').onchange = () => { st.excl.clear(); sync(); };
+  document.querySelectorAll('[data-dm]').forEach((b) => (b.onclick = () => { st.dm = b.dataset.dm; if (st.dm === 'multi') { $('df').value = $('d').value; $('dt').value = $('d').value; st.excl.clear(); } else if (dates()[0]) $('d').value = dates()[0]; sync(); }));
   document.querySelectorAll('[data-mode]').forEach((b) => (b.onclick = () => { st.mode = b.dataset.mode; sync(); }));
   $('multi').onchange = () => {
     st.multi = $('multi').checked; $('many').hidden = !st.multi; $('w').hidden = st.multi;
@@ -315,7 +349,7 @@ async function viewNew(preselect) {
     }
     syncChecks(); sync();
   }));
-  document.querySelectorAll('[data-kind]').forEach((b) => (b.onclick = () => { st.kind = b.dataset.kind; sync(); }));
+  document.querySelectorAll('[data-kind]').forEach((b) => (b.onclick = () => { st.kind = b.dataset.kind; $('wk').checked = st.kind === 'use'; st.excl.clear(); sync(); }));
   document.querySelectorAll('[data-add]').forEach((b) => (b.onclick = () => { setMin(minutes() + +b.dataset.add); sync(); }));
   document.querySelectorAll('[data-t]').forEach((b) => (b.onclick = () => { $('n').value = $('n').value.trim() ? `${$('n').value.trim()}, ${b.dataset.t}` : b.dataset.t; }));
   document.querySelectorAll('[data-d]').forEach((b) => (b.onclick = () => {
@@ -327,15 +361,17 @@ async function viewNew(preselect) {
   const submit = async (confirm) => {
     const ids = targets();
     const range = st.mode === 'time' ? `${$('t1').value}–${$('t2').value}` : '';
-    const body = { worker_ids: ids, kind: st.kind, minutes: minutes(), date: $('d').value, note: [range, $('n').value.trim()].filter(Boolean).join(' · '), client_id: uuid() };
-    const hits = ids.map((id) => active.find((w) => w.id === id)).filter((w) => w && w.signed_to && body.date <= w.signed_to);
+    const ds = dates();
+    const body = { worker_ids: ids, kind: st.kind, minutes: minutes(), date: ds[0], note: [range, $('n').value.trim()].filter(Boolean).join(' · '), client_id: uuid() };
+    if (st.dm === 'multi') body.dates = ds;
+    const hits = ids.map((id) => active.find((w) => w.id === id)).filter((w) => w && w.signed_to && ds[0] <= w.signed_to);
     if (hits.length && !confirm) return warnSigned(hits.map((w) => ({ name: w.name, signed_to: w.signed_to })));
     if (confirm) body.confirm_signed = true;
     $('save').disabled = true; $('msg').innerHTML = '';
     try {
       const { ids: created } = await api('/entries', { method: 'POST', body });
       location.hash = ids.length === 1 ? `#/dolgozo/${ids[0]}` : '#/';
-      toast(ids.length === 1 ? 'Rögzítve' : `Rögzítve ${ids.length} dolgozónak`, {
+      toast(`Rögzítve${ids.length > 1 ? ` ${ids.length} dolgozónak` : ''}${ds.length > 1 ? `, ${ds.length} napra` : ''}`, {
         label: 'Visszavonás',
         run: async () => { try { await api('/entries/undo', { method: 'POST', body: { ids: created } }); toast('Visszavonva'); route(); } catch (err) { toast(err.message); } },
       });
@@ -344,7 +380,7 @@ async function viewNew(preselect) {
       if (err.offline) {
         const names = ids.map((id) => active.find((w) => w.id === id)?.name).filter(Boolean).join(', ');
         body.offline = true;
-        const q = loadQ(); q.push({ body, label: `${names} · ${fmt(st.kind === 'use' ? -minutes() : minutes(), true)} · ${shortDate(body.date)}` }); saveQ(q);
+        const q = loadQ(); q.push({ body, label: `${names} · ${fmt(st.kind === 'use' ? -minutes() : minutes(), true)} · ${ds.length > 1 ? `${ds.length} nap (${shortDate(ds[0])}–${shortDate(ds[ds.length - 1])})` : shortDate(body.date)}` }); saveQ(q);
         toast('Nincs kapcsolat: a tétel a telefonon van, a net visszatérésekor feltöltődik.'); location.hash = '#/';
         return;
       }
@@ -779,7 +815,7 @@ async function viewAudit() {
       case 'worker.create': return `Dolgozó felvéve: ${d.name ? esc(d.name) : `törölt dolgozó (#${d.id})`}${d.opening ? ` (nyitó: ${fmt(d.opening)})` : ''}`;
       case 'worker.delete': return `Dolgozó véglegesen törölve (#${d.id}, ${d.entries} tétel)`;
       case 'worker.update': return d.deleted ? `Dolgozó módosítva (törölt dolgozó, #${d.id})` : d.name !== undefined ? `Átnevezve: ${esc(d.name)}` : d.status === 'parked' ? `Parkoltatva: ${esc(name(d.id))}${d.note ? ` (${esc(d.note)})` : ''}` : d.status === 'left' || d.active === false ? `Kilépettnek jelölve: ${esc(name(d.id))}` : `Aktiválva: ${esc(name(d.id))}`;
-      case 'entry.create': return `Rögzítve: ${(d.workerIds || []).map((x) => esc(name(x))).join(', ')} · ${fmt(d.minutes, true)} · ${dotted(d.date)}${d.overrideSigned ? ' · <b>aláírt időszakba</b>' : ''}${d.offline ? ' · offline rögzítve' : ''}`;
+      case 'entry.create': return `Rögzítve: ${(d.workerIds || []).map((x) => esc(name(x))).join(', ')} · ${fmt(d.minutes, true)} · ${d.dates ? `${d.dates.length} nap (${dotted(d.dates[0])} – ${dotted(d.dates[d.dates.length - 1])})` : dotted(d.date)}${d.overrideSigned ? ' · <b>aláírt időszakba</b>' : ''}${d.offline ? ' · offline rögzítve' : ''}`;
       case 'entry.undo': return `Visszavonva (törölve): ${(d.ids || []).length} tétel`;
       case 'entry.reverse': return `Sztornó rögzítve (#${d.reverses} tételhez)`;
       case 'signature.create': return `Aláírás rögzítve: ${esc(name(d.wid))} · ${dotted(d.from)} – ${dotted(d.to)}`;

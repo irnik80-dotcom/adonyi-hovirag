@@ -414,25 +414,29 @@ export default {
         if (!ids.length) return fail(400, 'Válassz legalább egy dolgozót.');
         if (ids.length > 100) return fail(400, 'Túl sok dolgozó.');
         if (!Number.isInteger(minutes) || minutes <= 0 || minutes > 60 * 24 * 31) return fail(400, 'Adj meg 0-nál nagyobb időtartamot.');
-        if (!isDate(b.date)) return fail(400, 'Hibás dátum.');
-        if (kind === 'credit' && b.date > today) return fail(400, 'Túlórát csak már megtörtént napra lehet rögzíteni.');
+        // Egy vagy több nap (dates), minden naphoz külön tétel készül.
+        const dates = [...new Set((Array.isArray(b.dates) && b.dates.length ? b.dates : [b.date]).map(String))].sort();
+        if (!dates.length || dates.some((d) => !isDate(d))) return fail(400, 'Hibás dátum.');
+        if (dates.length > 62) return fail(400, 'Legfeljebb 62 nap jelölhető ki egyszerre.');
+        if (ids.length * dates.length > 120) return fail(400, 'Túl sok tétel egyszerre (legfeljebb 120).');
+        if (kind === 'credit' && dates.some((d) => d > today)) return fail(400, 'Túlórát csak már megtörtént napra lehet rögzíteni.');
         const ph = ids.map(() => '?').join(',');
         const found = (await env.DB.prepare(`SELECT id FROM workers WHERE id IN (${ph})`).bind(...ids).all()).results;
         if (found.length !== ids.length) return fail(404, 'Nincs ilyen dolgozó.');
         // Már aláírt időszakba eső tétel megváltoztatná az aláírt papír tartalmát: csak megerősítéssel.
         const signedHits = (await env.DB.prepare(
           `SELECT w.name, MAX(s.to_date) AS signed_to FROM signatures s JOIN workers w ON w.id = s.worker_id
-           WHERE s.worker_id IN (${ph}) GROUP BY s.worker_id`).bind(...ids).all()).results.filter((r) => b.date <= r.signed_to);
+           WHERE s.worker_id IN (${ph}) GROUP BY s.worker_id`).bind(...ids).all()).results.filter((r) => dates[0] <= r.signed_to);
         if (signedHits.length && !b.confirm_signed) {
           return json({ error: 'Az időszak már alá van írva.', needs_confirm: true, workers: signedHits }, 409);
         }
         const signed = kind === 'use' ? -minutes : minutes;
         const note = cleanText(b.note, 300);
-        const out = await env.DB.batch(ids.map((wid) =>
-          env.DB.prepare('INSERT INTO entries (worker_id, date, minutes, kind, note) VALUES (?, ?, ?, ?, ?) RETURNING id').bind(wid, b.date, signed, kind, note)));
+        const out = await env.DB.batch(ids.flatMap((wid) => dates.map((d) =>
+          env.DB.prepare('INSERT INTO entries (worker_id, date, minutes, kind, note) VALUES (?, ?, ?, ?, ?) RETURNING id').bind(wid, d, signed, kind, note))));
         const created = out.map((r) => r.results[0].id);
         if (clientId) await env.DB.prepare('INSERT OR IGNORE INTO client_requests (client_id, ids) VALUES (?, ?)').bind(clientId, JSON.stringify(created)).run();
-        await audit(env, 'entry.create', { ids: created, workerIds: ids, minutes: signed, kind, date: b.date, overrideSigned: signedHits.length > 0 || undefined, offline: b.offline ? true : undefined });
+        await audit(env, 'entry.create', { ids: created, workerIds: ids, minutes: signed, kind, date: dates[0], dates: dates.length > 1 ? dates : undefined, overrideSigned: signedHits.length > 0 || undefined, offline: b.offline ? true : undefined });
         return json({ ids: created }, 201);
       }
 
