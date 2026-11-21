@@ -350,3 +350,12 @@ h1,h2,.hello h1{font-weight:800;letter-spacing:-.02em}
 .fab{bottom:calc(96px + env(safe-area-inset-bottom))}
 #app{padding-bottom:calc(150px + env(safe-area-inset-bottom))}
 .toast,#toast{bottom:calc(110px + env(safe-area-inset-bottom))}
+
+/* naptár-alapú napválasztó */
+.calgrid.pick{margin-top:10px;gap:5px}
+.calgrid.pick .day{border-radius:12px;font-size:15px;font-variant-numeric:tabular-nums}
+.day.inr{background:var(--surface-2);border-color:transparent}
+.day.wkd{color:var(--ink-2)}
+.day.skip{opacity:.4;text-decoration:line-through}
+.day:disabled{opacity:.3;cursor:default}
+.calgrid.pick .day.sel{box-shadow:none}
