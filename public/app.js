@@ -152,14 +152,15 @@ function statusLine(w) {
 }
 
 const hmm = (m) => `${m < 0 ? '−' : ''}${Math.floor(Math.abs(m) / 60)}:${pad(Math.abs(m) % 60)}`;
-const getSort = () => { try { return localStorage.getItem('hovirag_sort') || 'bal'; } catch { return 'bal'; } };
+const pref = (k, d) => { try { return localStorage.getItem('hovirag_' + k) ?? d; } catch { return d; } };
+const setPref = (k, v) => { try { localStorage.setItem('hovirag_' + k, v); } catch { /* nem baj */ } };
 
 async function viewList() {
   $app.innerHTML = '<p class="empty">Betöltés…</p>';
   const { workers, upcoming, today_off: todayOff, groups, warn_high_min: warnHigh, prev_month_end: prevEnd } = await api('/workers');
   const active = workers.filter(isAct);
   const total = active.reduce((s, w) => s + w.balance, 0);
-  const f = { g: 0, sort: getSort() };
+  const f = { g: 0, sort: pref('sort', 'bal'), dir: pref('dir', 'desc'), grp: pref('grp', '0') === '1' };
   const warns = [];
   const missing = active.filter((w) => w.unsigned_old > 0);
   if (missing.length) warns.push(`<a href="#/kimutatas?w=all&from=${prevEnd.slice(0, 8)}01&to=${prevEnd}"><b>${missing.length} dolgozónak</b> nincs aláírt kimutatása ${dotted(prevEnd)}-ig</a>`);
@@ -177,8 +178,8 @@ async function viewList() {
   const rest = pos(active.filter((w) => !gidsOf(w).length));
   if (usedGroups.length && rest > 0) segs.push({ name: 'Nincs munkakör', v: rest });
   const segTotal = segs.reduce((s, x) => s + x.v, 0);
-  const segHtml = usedGroups.length && segTotal > 0 ? `<div class="seg-bar">${segs.filter((x) => x.v > 0).map((x, i) => `<i style="width:${(x.v / segTotal) * 100}%;background:var(--s${(i % 3) + 1})"></i>`).join('')}</div>
-    <div class="leg">${segs.filter((x) => x.v > 0).map((x, i) => `<span style="--c:var(--s${(i % 3) + 1})">${esc(x.name)} ${hmm(x.v)}</span>`).join('')}</div>` : '';
+  const segHtml = usedGroups.length && segTotal > 0 ? `<div class="seg-bar">${segs.filter((x) => x.v > 0).map((x, i) => `<i style="width:${(x.v / segTotal) * 100}%;background:var(--s${(i % 5) + 1})"></i>`).join('')}</div>
+    <div class="leg">${segs.filter((x) => x.v > 0).map((x, i) => `<span style="--c:var(--s${(i % 5) + 1})">${esc(x.name)} ${hmm(x.v)}</span>`).join('')}</div>` : '';
 
   $app.innerHTML = `
     <div class="head"><div><small>Adonyi Hóvirág Óvoda</small><h1>Áttekintés</h1></div>${ICONS.flowerArt}</div>
@@ -193,8 +194,9 @@ async function viewList() {
     ${queueBanner()}
     <label class="search">${ICONS.search}<input id="q" type="search" placeholder="Név keresése" aria-label="Név keresése"></label>
     ${usedGroups.length ? `<div class="quick chips" id="gf"><button type="button" data-g="0" aria-pressed="true">Mindenki</button>${usedGroups.map((g) => `<button type="button" data-g="${g.id}">${esc(g.name)}</button>`).join('')}</div>` : ''}
-    <div class="lab"><span>Egyenlegek${warnHigh > 0 ? ` · jelölő: ${Math.round(warnHigh / 60)} óra` : ''}</span>
-      <span class="sortseg"><button type="button" data-sort="bal" aria-pressed="${f.sort === 'bal'}">Egyenleg</button><button type="button" data-sort="name" aria-pressed="${f.sort === 'name'}">Név</button></span></div>
+    <div class="lab"><span>Egyenlegek${warnHigh > 0 ? ` · jelölő: ${Math.round(warnHigh / 60)} óra` : ''}</span></div>
+    <div class="sortbar"><span class="sortseg"><button type="button" data-sort="name" aria-pressed="${f.sort === 'name'}"></button><button type="button" data-sort="bal" aria-pressed="${f.sort === 'bal'}"></button></span>
+      <button type="button" class="grpbtn" id="grpbtn" aria-pressed="${f.grp}">Munkakör szerint</button></div>
     <div class="items" id="l"></div>
     ${parked.length ? `<details class="parked"><summary>Parkoltatottak (${parked.length})</summary><div class="items">${parked.map((w) => `
       <a class="item muted" href="#/dolgozo/${w.id}"><div class="h"><span>${esc(w.name)}</span><em>${fmt(w.balance)}</em></div>
@@ -202,27 +204,51 @@ async function viewList() {
     <a class="fab" href="#/uj">${ICONS.plus}Új tétel</a>${nav('list')}`;
   bindQueue();
   const scale = warnHigh > 0 ? warnHigh : Math.max(60, ...active.map((w) => Math.abs(w.balance)));
+  const itemHtml = (w) => {
+    const cls = w.balance < 0 ? 'neg' : warnHigh > 0 && w.balance >= warnHigh ? 'hi' : '';
+    const width = w.balance === 0 ? 0 : Math.min(100, Math.max(3, (Math.abs(w.balance) / scale) * 100));
+    const grp = groupName(w);
+    return `<a class="item" href="#/dolgozo/${w.id}"><div class="h"><span>${esc(w.name)}</span><em class="${w.balance < 0 ? 'neg' : ''}">${fmt(w.balance)}</em></div>
+      <div class="track"><s class="${cls}" style="width:${width}%"></s>${warnHigh > 0 ? '<u></u>' : ''}</div>
+      <div class="sub"><span>${grp && !f.grp ? `${esc(grp)} · ` : ''}${w.last_date ? `utolsó: ${shortDate(w.last_date)}` : 'még nincs tétel'}</span>${statusLine(w)}</div></a>`;
+  };
+  const cmp = (x, y) => {
+    const byName = x.name.localeCompare(y.name, 'hu');
+    const r = f.sort === 'bal' ? x.balance - y.balance || byName : byName;
+    return f.dir === 'asc' ? r : -r;
+  };
+  const labels = () => {
+    const arrow = f.dir === 'asc' ? '▲' : '▼';
+    document.querySelectorAll('[data-sort]').forEach((b) => {
+      const on = f.sort === b.dataset.sort;
+      b.setAttribute('aria-pressed', on);
+      b.textContent = `${b.dataset.sort === 'name' ? 'Név' : 'Egyenleg'}${on ? ` ${arrow}` : ''}`;
+      b.setAttribute('aria-label', `${b.textContent} rendezés${on ? ', koppints a sorrend megfordításához' : ''}`);
+    });
+    document.getElementById('grpbtn').setAttribute('aria-pressed', f.grp);
+  };
   const draw = () => {
     const q = document.getElementById('q').value.trim().toLowerCase();
-    const rows = active.filter((w) => w.name.toLowerCase().includes(q) && (!f.g || gidsOf(w).includes(f.g)))
-      .sort((x, y) => (f.sort === 'bal' ? y.balance - x.balance || x.name.localeCompare(y.name, 'hu') : x.name.localeCompare(y.name, 'hu')));
-    document.getElementById('l').innerHTML = rows.length ? rows.map((w) => {
-      const cls = w.balance < 0 ? 'neg' : warnHigh > 0 && w.balance >= warnHigh ? 'hi' : '';
-      const width = w.balance === 0 ? 0 : Math.min(100, Math.max(3, (Math.abs(w.balance) / scale) * 100));
-      const grp = groupName(w);
-      return `<a class="item" href="#/dolgozo/${w.id}"><div class="h"><span>${esc(w.name)}</span><em class="${w.balance < 0 ? 'neg' : ''}">${fmt(w.balance)}</em></div>
-        <div class="track"><s class="${cls}" style="width:${width}%"></s>${warnHigh > 0 ? '<u></u>' : ''}</div>
-        <div class="sub"><span>${grp ? `${esc(grp)} · ` : ''}${w.last_date ? `utolsó: ${shortDate(w.last_date)}` : 'még nincs tétel'}</span>${statusLine(w)}</div></a>`;
-    }).join('') : `<p class="empty">${active.length ? 'Nincs találat.' : 'Még nincs dolgozó. A Beállításokban fel tudod venni őket.'}</p>`;
+    const rows = active.filter((w) => w.name.toLowerCase().includes(q) && (!f.g || gidsOf(w).includes(f.g))).sort(cmp);
+    labels();
+    const el = document.getElementById('l');
+    if (!rows.length) { el.innerHTML = `<p class="empty">${active.length ? 'Nincs találat.' : 'Még nincs dolgozó. A Beállításokban fel tudod venni őket.'}</p>`; return; }
+    if (!f.grp) { el.innerHTML = rows.map(itemHtml).join(''); return; }
+    // munkakör szerinti csoportosítás: a munkakörök sorrendben, végül a munkakör nélküliek
+    const sections = [...groups.map((g) => ({ name: g.name, list: rows.filter((w) => gidsOf(w)[0] === g.id) })), { name: 'Nincs munkakör', list: rows.filter((w) => !groups.some((g) => g.id === gidsOf(w)[0])) }].filter((x) => x.list.length);
+    el.innerHTML = sections.map((x) => `<section class="grp"><div class="grp-h"><b>${esc(x.name)}</b><span>${x.list.length} fő · ${hmm(x.list.reduce((a, w) => a + w.balance, 0))}</span></div><div class="items">${x.list.map(itemHtml).join('')}</div></section>`).join('');
   };
   document.getElementById('q').oninput = draw;
   document.querySelectorAll('[data-g]').forEach((b) => (b.onclick = () => {
     f.g = +b.dataset.g; document.querySelectorAll('[data-g]').forEach((x) => x.setAttribute('aria-pressed', x === b)); draw();
   }));
+  // ugyanarra a gombra koppintva megfordul a sorrend (növekvő / csökkenő)
   document.querySelectorAll('[data-sort]').forEach((b) => (b.onclick = () => {
-    f.sort = b.dataset.sort; try { localStorage.setItem('hovirag_sort', f.sort); } catch { /* nem baj */ }
-    document.querySelectorAll('[data-sort]').forEach((x) => x.setAttribute('aria-pressed', x === b)); draw();
+    if (f.sort === b.dataset.sort) f.dir = f.dir === 'asc' ? 'desc' : 'asc';
+    else { f.sort = b.dataset.sort; f.dir = f.sort === 'name' ? 'asc' : 'desc'; }
+    setPref('sort', f.sort); setPref('dir', f.dir); draw();
   }));
+  document.getElementById('grpbtn').onclick = () => { f.grp = !f.grp; setPref('grp', f.grp ? '1' : '0'); draw(); };
   draw();
 }
 
@@ -541,6 +567,10 @@ async function viewSettings() {
         <input class="input" id="oh" type="number" inputmode="numeric" min="0" placeholder="óra" aria-label="Nyitó óra">
         <input class="input" id="om" type="number" inputmode="numeric" min="0" max="59" placeholder="perc" aria-label="Nyitó perc"></div></div>
       <div id="msg"></div><button class="btn" type="submit">Dolgozó felvétele</button></form>
+    <details class="field bulkimp"><summary class="label" style="cursor:pointer">Dolgozók tömeges felvétele (induláshoz)</summary>
+      <p class="tabs-note" style="margin:6px 0 8px">Soronként egy dolgozó: <b>Név; Munkakör; Nyitó egyenleg</b>. Excelből is beilleszthető (tabulátorral elválasztva). Nyitó egyenleg: <b>12:30</b>, <b>12 ó 30 p</b> vagy <b>12,5</b> (óra). Munkakör például: Pedagógus, Asszisztens, Dajka, Egyéb.</p>
+      <textarea class="input" id="bulk" rows="6" placeholder="Kovács Ágnes; Pedagógus; 12:30&#10;Tóth Mária; Dajka; 7:10&#10;Nagy Zsuzsanna; Asszisztens; 0"></textarea>
+      <button class="btn ghost" type="button" id="bchk">Ellenőrzés</button><div id="bprev"></div></details>
     <div class="field"><span class="label">Dolgozók</span>${workers.map((w) => `
       <div class="set-item col ${w.active === 0 ? 'off' : ''}"><div class="top"><span>${esc(w.name)}</span><em class="stl st${w.active}">${['Kilépett', 'Aktív', 'Parkoltatva'][w.active]}</em></div>
       ${w.active === 2 ? `<span class="status warn" style="font-size:12.5px">${esc(w.park_note || 'Parkoltatva')} · ${dotted(w.park_since)} óta${w.park_until ? ` · visszatér: ${dotted(w.park_until)}` : ''}</span>` : ''}
@@ -619,6 +649,46 @@ async function viewSettings() {
   $('tf').onsubmit = async (e) => {
     e.preventDefault();
     try { await api('/templates', { method: 'POST', body: { text: $('tt').value } }); viewSettings(); } catch (err) { toast(err.message); }
+  };
+  const norm = (x) => x.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+  const parseOpen = (t) => {
+    t = t.trim(); if (!t) return 0;
+    let m = t.match(/^(-?)(\d+):(\d{1,2})$/); if (m) return (m[1] ? -1 : 1) * (+m[2] * 60 + +m[3]);
+    m = t.match(/^(-?)(\d+)\s*ó\w*\s*(?:(\d+)\s*p\w*)?$/i); if (m) return (m[1] ? -1 : 1) * (+m[2] * 60 + (+m[3] || 0));
+    m = t.match(/^(-?)(\d+(?:[.,]\d+)?)$/); if (m) return (m[1] ? -1 : 1) * Math.round(parseFloat(m[2].replace(',', '.')) * 60);
+    return null;
+  };
+  const matchGroup = (tok) => {
+    const n = norm(tok); if (!n) return null;
+    let best = null, score = 0, tie = false;
+    for (const g of groups) {
+      const gn = norm(g.name); let sc = gn.includes(n) && n.length >= 4 ? 100 + n.length : 0;
+      if (!sc) { let i = 0; while (i < n.length && i < gn.length && n[i] === gn[i]) i++; sc = i >= 4 ? i : 0; }
+      if (sc > score) { best = g; score = sc; tie = false; } else if (sc === score && sc > 0) tie = true;
+    }
+    return tie ? null : best;
+  };
+  let parsed = [];
+  $('bchk').onclick = () => {
+    const existing = new Set(workers.map((w) => norm(w.name)));
+    const seen = new Set();
+    parsed = $('bulk').value.split(/\r?\n/).map((l) => l.trim()).filter(Boolean).map((line) => {
+      const [name = '', grp = '', open = ''] = line.split(/;|\t/).map((x) => x.trim());
+      const g = matchGroup(grp), min = parseOpen(open);
+      const err = !name ? 'hiányzik a név' : existing.has(norm(name)) ? 'már van ilyen nevű dolgozó' : seen.has(norm(name)) ? 'kétszer szerepel' : groups.length && !g ? `ismeretlen munkakör: „${grp}”` : min === null ? `érthetetlen nyitó egyenleg: „${open}”` : '';
+      seen.add(norm(name));
+      return { name, g, min, err };
+    });
+    const ok = parsed.filter((r) => !r.err);
+    $('bprev').innerHTML = `<div class="entries" style="margin-top:10px">${parsed.map((r) => `<div class="entry ${r.err ? 'dim' : ''}"><div class="meta"><b>${esc(r.name || '—')}</b><span>${r.err ? `<em class="status warn">${esc(r.err)}</em>` : `${esc(r.g?.name || '')} · nyitó: ${fmt(r.min || 0)}`}</span></div></div>`).join('')}</div>
+      <p class="tabs-note">${ok.length} felvehető, ${parsed.length - ok.length} hibás (kimarad).</p>
+      ${ok.length ? `<button class="btn" type="button" id="bgo">${ok.length} dolgozó felvétele</button>` : ''}`;
+    const go = document.getElementById('bgo');
+    if (go) go.onclick = async () => {
+      go.disabled = true;
+      try { const r = await api('/workers/bulk', { method: 'POST', body: { date: today(), rows: ok.map((x) => ({ name: x.name, group_id: x.g?.id, opening_minutes: x.min })) } }); toast(`${r.added} dolgozó felvéve`); viewSettings(); }
+      catch (err) { toast(err.message); go.disabled = false; }
+    };
   };
   api('/version').then((v) => {
     $('ver').textContent = v.id ? `${v.id}${v.timestamp ? ' · telepítve: ' + new Intl.DateTimeFormat('hu-HU', { timeZone: 'Europe/Budapest', dateStyle: 'medium', timeStyle: 'short' }).format(new Date(v.timestamp)) : ''}` : 'Nem elérhető (helyi futtatás).';
@@ -833,6 +903,7 @@ async function viewAudit() {
     const d = r.detail || {};
     switch (r.action) {
       case 'worker.create': return `Dolgozó felvéve: ${d.name ? esc(d.name) : `törölt dolgozó (#${d.id})`}${d.opening ? ` (nyitó: ${fmt(d.opening)})` : ''}`;
+      case 'worker.bulk': return `Dolgozók tömeges felvétele: ${d.count} fő`;
       case 'worker.delete': return `Dolgozó véglegesen törölve (#${d.id}, ${d.entries} tétel)`;
       case 'worker.update': return d.deleted ? `Dolgozó módosítva (törölt dolgozó, #${d.id})` : d.name !== undefined ? `Átnevezve: ${esc(d.name)}` : d.status === 'parked' ? `Parkoltatva: ${esc(name(d.id))}${d.note ? ` (${esc(d.note)})` : ''}` : d.status === 'left' || d.active === false ? `Kilépettnek jelölve: ${esc(name(d.id))}` : `Aktiválva: ${esc(name(d.id))}`;
       case 'entry.create': return `Rögzítve: ${(d.workerIds || []).map((x) => esc(name(x))).join(', ')} · ${fmt(d.minutes, true)} · ${d.dates ? `${d.dates.length} nap (${dotted(d.dates[0])} – ${dotted(d.dates[d.dates.length - 1])})` : dotted(d.date)}${d.overrideSigned ? ' · <b>aláírt időszakba</b>' : ''}${d.offline ? ' · offline rögzítve' : ''}`;

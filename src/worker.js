@@ -299,6 +299,31 @@ export default {
         return json({ ok: true, deleted_entries: count });
       }
 
+      // Dolgozók tömeges felvétele (induláskor a papír nyilvántartásból): név, munkakör, nyitó egyenleg
+      if (path === '/api/workers/bulk' && method === 'POST') {
+        const b = await request.json();
+        const rows = (Array.isArray(b.rows) ? b.rows : []).slice(0, 100)
+          .map((r) => ({ name: cleanText(r.name, 80), gid: Number(r.group_id), open: Math.trunc(Number(r.opening_minutes) || 0) }));
+        if (!rows.length) return fail(400, 'Nincs felvehető dolgozó.');
+        const groupIds = new Set((await getGroups(env)).map((g) => g.id));
+        for (const r of rows) {
+          if (!r.name) return fail(400, 'Üres név a listában.');
+          if (groupIds.size && !groupIds.has(r.gid)) return fail(400, `${r.name}: válassz munkakört.`);
+          if (Math.abs(r.open) > 60 * 24 * 365) return fail(400, `${r.name}: túl nagy nyitó egyenleg.`);
+        }
+        const date = isDate(b.date) ? b.date : today;
+        const ins = await env.DB.batch(rows.map((r) => env.DB.prepare('INSERT INTO workers (name) VALUES (?) RETURNING id').bind(r.name)));
+        const ids = ins.map((x) => x.results[0].id);
+        const stmts = [];
+        rows.forEach((r, i) => {
+          if (r.open !== 0) stmts.push(env.DB.prepare("INSERT INTO entries (worker_id, date, minutes, kind, note) VALUES (?, ?, ?, 'opening', ?)").bind(ids[i], date, r.open, 'Nyitó egyenleg a papír nyilvántartásból'));
+          if (groupIds.size) stmts.push(env.DB.prepare('INSERT INTO staff_group_members (worker_id, group_id) VALUES (?, ?)').bind(ids[i], r.gid));
+        });
+        if (stmts.length) await env.DB.batch(stmts);
+        await audit(env, 'worker.bulk', { count: ids.length });
+        return json({ added: ids.length }, 201);
+      }
+
       m = path.match(/^\/api\/workers\/(\d+)\/groups$/);
       if (m && method === 'PUT') {
         const id = Number(m[1]);

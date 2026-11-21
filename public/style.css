@@ -359,3 +359,20 @@ h1,h2,.hello h1{font-weight:800;letter-spacing:-.02em}
 .day.skip{opacity:.4;text-decoration:line-through}
 .day:disabled{opacity:.3;cursor:default}
 .calgrid.pick .day.sel{box-shadow:none}
+
+/* rendezés és csoportosítás */
+.sortbar{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 10px}
+.sortbar .sortseg button{min-width:92px;padding:8px 12px;font-size:12px}
+.grpbtn{border:0;background:var(--surface);color:var(--ink-2);font-weight:800;font-size:12px;letter-spacing:.04em;text-transform:uppercase;border-radius:12px;padding:10px 14px}
+.grpbtn[aria-pressed=true]{background:var(--ink);color:var(--bg)}
+.grp{margin-top:6px}
+.grp+.grp{margin-top:16px}
+.grp-h{display:flex;justify-content:space-between;align-items:baseline;gap:8px;margin:4px 2px 8px}
+.grp-h b{font-size:15px;font-weight:800}
+.grp-h span{font-size:12px;font-weight:700;color:var(--ink-2);font-variant-numeric:tabular-nums}
+
+/* munkakör-színek (5) a hero sávhoz */
+:root{--s4:#FFD98A;--s5:#D9C2F0}
+@media (prefers-color-scheme:dark){:root{--s4:#F2B544;--s5:#A66CB8}}
+.bulkimp{margin-top:18px}
+.bulkimp summary{list-style:none}
