@@ -173,7 +173,7 @@ const setPref = (k, v) => { try { localStorage.setItem('hovirag_' + k, v); } cat
 
 async function viewList() {
   $app.innerHTML = '<p class="empty">Betöltés…</p>';
-  const { workers, upcoming, today_off: todayOff, namedays = [], leave_today: leaveToday = [], groups, warn_high_min: warnHigh, prev_month_end: prevEnd } = await api('/workers');
+  const { workers, upcoming, today_off: todayOff, namedays = [], nameday_next: namedayNext = null, leave_today: leaveToday = [], groups, warn_high_min: warnHigh, prev_month_end: prevEnd } = await api('/workers');
   const active = workers.filter(isAct);
   const total = active.reduce((s, w) => s + w.balance, 0);
   const f = { g: 0, sort: pref('sort', 'bal'), dir: pref('dir', 'desc'), grp: pref('grp', '0') === '1' };
@@ -203,8 +203,9 @@ async function viewList() {
       ${segHtml}
       <div class="pills"><span class="pill">${active.length} dolgozó</span>${upcoming.length ? `<span class="pill">${upcoming.length} tervezett szabadidő</span>` : ''}</div></div>
     ${warns.length ? `<details class="warnlist" ${warns.length === 1 ? 'open' : ''}><summary>${warns.length} figyelmeztetés</summary>${warns.join('')}</details>` : ''}
-    ${namedays.length ? `<div class="upcoming nameday"><span class="label">Névnapok · következő 7 nap</span>${namedays.map((n) => `
-      <a href="#/dolgozo/${n.worker_id}"><b>${n.in_days === 0 ? 'ma' : n.in_days === 1 ? 'holnap' : `${n.in_days} nap`}</b><span>${esc(n.name)}</span><em>${shortDate(n.date)}</em></a>`).join('')}</div>` : ''}
+    <div class="upcoming nameday"><span class="label">Névnapok · következő 7 nap</span>${namedays.length ? namedays.map((n) => `
+      <a href="#/dolgozo/${n.worker_id}"><b>${n.in_days === 0 ? 'ma' : n.in_days === 1 ? 'holnap' : `${n.in_days} nap`}</b><span>${esc(n.name)}</span><em>${shortDate(n.date)}</em></a>`).join('')
+      : `<p class="tabs-note" style="margin:4px 0 0">${namedayNext ? `Nincs névnap a következő héten. Legközelebb: <b>${esc(namedayNext.name)}</b>, ${shortDate(namedayNext.date)} (${namedayNext.in_days} nap múlva).` : 'Egyik dolgozóhoz sem találtam névnapot. A név második szavát használom keresztnévnek, vagy add meg a keresztnevet a dolgozó lapján (Név / névnap).'}</p>`}</div>
     ${leaveToday.length ? `<div class="upcoming todayoff"><span class="label">Ma szabadságon</span>${leaveToday.map((u) => `
       <a href="#/szabadsag/${u.worker_id}"><b>egész nap</b><span>${esc(u.name)}</span><em></em></a>`).join('')}</div>` : ''}
     ${todayOff.length ? `<div class="upcoming todayoff"><span class="label">Ma szabadidőn</span>${todayOff.map((u) => `

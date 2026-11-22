@@ -312,7 +312,7 @@ export default {
         const leaveToday = (await env.DB.prepare(
           `SELECT l.id, w.id AS worker_id, w.name FROM leaves l JOIN workers w ON w.id = l.worker_id WHERE l.date = ? AND w.active = 1 ORDER BY w.name COLLATE NOCASE`).bind(today).all()).results;
         const warnHigh = Number((await getSetting(env, 'warn_high_min')) ?? 2400);
-        return json({ today, prev_month_end: prevEnd, workers: results.map(hideFirstName), upcoming, today_off: todayOff, leave_today: leaveToday, namedays: upcomingNameDays(results.filter((x) => x.active === 1), today, 7), groups: await getGroups(env), warn_high_min: warnHigh });
+        return json({ today, prev_month_end: prevEnd, workers: results.map(hideFirstName), upcoming, today_off: todayOff, leave_today: leaveToday, namedays: upcomingNameDays(results.filter((x) => x.active === 1), today, 7), nameday_next: upcomingNameDays(results.filter((x) => x.active === 1), today, 366)[0] || null, groups: await getGroups(env), warn_high_min: warnHigh });
       }
 
       if (path === '/api/workers' && method === 'POST') {
