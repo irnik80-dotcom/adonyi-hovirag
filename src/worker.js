@@ -103,6 +103,8 @@ const nameDaysOf = (w) => {
   NEVNAPOK.forEach((month, mi) => month.forEach((day, di) => day.split(',').forEach((n) => { if (fn.includes(normName(n))) out.push({ mm: mi + 1, dd: di + 1, name: n.trim() }); })));
   return out;
 };
+// A keresztnév sosem hagyja el a szervert: kifelé csak az látszik, hogy meg van-e adva.
+const hideFirstName = (w) => { const { first_name: fn, ...rest } = w; return { ...rest, has_first_name: fn && fn.trim() ? 1 : 0 }; };
 const dayDiff = (isoA, isoB) => Math.round((Date.parse(isoB + 'T00:00:00Z') - Date.parse(isoA + 'T00:00:00Z')) / 864e5);
 // Az aktív dolgozók következő névnapjai a mai naptól számított `days` napon belül (a mai nap is).
 function upcomingNameDays(workers, todayStr, days) {
@@ -111,7 +113,7 @@ function upcomingNameDays(workers, todayStr, days) {
     let date = `${ty}-${String(nd.mm).padStart(2, '0')}-${String(nd.dd).padStart(2, '0')}`;
     if (date < todayStr) date = `${ty + 1}-${date.slice(5)}`;
     const inDays = dayDiff(todayStr, date);
-    if (inDays <= days) out.push({ worker_id: w.id, name: w.name, nameday: nd.name, date, in_days: inDays });
+    if (inDays <= days) out.push({ worker_id: w.id, name: w.name, date, in_days: inDays });
   }
   return out.sort((a, b) => a.in_days - b.in_days || a.name.localeCompare(b.name, 'hu'));
 }
@@ -290,7 +292,7 @@ export default {
              AND NOT EXISTS (SELECT 1 FROM entries r WHERE r.reverses_id = e.id)
            ORDER BY w.name COLLATE NOCASE`).bind(today).all()).results;
         const warnHigh = Number((await getSetting(env, 'warn_high_min')) ?? 2400);
-        return json({ today, prev_month_end: prevEnd, workers: results, upcoming, today_off: todayOff, namedays: upcomingNameDays(results.filter((x) => x.active === 1), today, 7), groups: await getGroups(env), warn_high_min: warnHigh });
+        return json({ today, prev_month_end: prevEnd, workers: results.map(hideFirstName), upcoming, today_off: todayOff, namedays: upcomingNameDays(results.filter((x) => x.active === 1), today, 7), groups: await getGroups(env), warn_high_min: warnHigh });
       }
 
       if (path === '/api/workers' && method === 'POST') {
@@ -503,7 +505,7 @@ export default {
           `SELECT e.*, (SELECT 1 FROM entries r WHERE r.reverses_id = e.id) AS reversed
            FROM entries e WHERE e.worker_id = ? ORDER BY e.date DESC, e.id DESC`).bind(id).all();
         const signatures = (await env.DB.prepare('SELECT * FROM signatures WHERE worker_id = ? ORDER BY to_date DESC, id DESC').bind(id).all()).results;
-        return json({ today, worker, entries: results, signatures, namedays: nameDaysOf(worker), groups: await getGroups(env) });
+        return json({ today, worker: hideFirstName(worker), entries: results, signatures, namedays: nameDaysOf(worker).map(({ mm, dd }) => ({ mm, dd })), groups: await getGroups(env) });
       }
 
       if (path === '/api/entries' && method === 'POST') {

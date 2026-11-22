@@ -191,7 +191,7 @@ async function viewList() {
       <div class="pills"><span class="pill">${active.length} dolgozó</span>${upcoming.length ? `<span class="pill">${upcoming.length} tervezett szabadidő</span>` : ''}</div></div>
     ${warns.length ? `<details class="warnlist" ${warns.length === 1 ? 'open' : ''}><summary>${warns.length} figyelmeztetés</summary>${warns.join('')}</details>` : ''}
     ${namedays.length ? `<div class="upcoming nameday"><span class="label">Névnapok · következő 7 nap</span>${namedays.map((n) => `
-      <a href="#/dolgozo/${n.worker_id}"><b>${n.in_days === 0 ? 'ma' : n.in_days === 1 ? 'holnap' : `${n.in_days} nap`}</b><span>${esc(n.name)} · ${esc(n.nameday)}</span><em>${shortDate(n.date)}</em></a>`).join('')}</div>` : ''}
+      <a href="#/dolgozo/${n.worker_id}"><b>${n.in_days === 0 ? 'ma' : n.in_days === 1 ? 'holnap' : `${n.in_days} nap`}</b><span>${esc(n.name)}</span><em>${shortDate(n.date)}</em></a>`).join('')}</div>` : ''}
     ${todayOff.length ? `<div class="upcoming todayoff"><span class="label">Ma szabadidőn</span>${todayOff.map((u) => `
       <a href="#/dolgozo/${u.worker_id}"><b>${fmt(-u.minutes)}</b><span>${esc(u.name)}${u.note ? ` · ${esc(u.note)}` : ''}</span><em></em></a>`).join('')}</div>` : ''}
     ${upcoming.length ? `<div class="upcoming"><span class="label">Közelgő szabadidő</span>${upcoming.map((u) => `
@@ -469,10 +469,12 @@ async function viewWorker(id) {
     <div class="row" style="margin-top:10px"><a class="btn ghost small" style="flex:1;text-align:center;text-decoration:none" href="#/kimutatas?w=${worker.id}">Kimutatás</a>
       <button class="btn ghost small" style="flex:1" id="ren" type="button">Név / névnap</button></div>
     <form id="renf" style="margin-top:10px" hidden><label class="label" for="newname">Név</label><input class="input" id="newname" maxlength="80" value="${esc(worker.name)}" required>
-      <label class="label" for="newfn" style="margin-top:10px">Keresztnév a névnaphoz (nem kötelező)</label><input class="input" id="newfn" maxlength="60" value="${esc(worker.first_name || '')}" placeholder="Pl. Ágnes">
-      <p class="tabs-note" style="margin:6px 0 0">Nem jelenik meg a listákban, csak a névnaphoz használjuk. Ha üres, a név második szavát vesszük. Több keresztnév vesszővel vagy szóközzel elválasztható.</p>
+      <label class="label" for="newfn" style="margin-top:10px">Keresztnév a névnaphoz (nem kötelező)</label>
+      <input class="input" id="newfn" maxlength="60" autocomplete="off" value="" placeholder="${worker.has_first_name ? 'Megadva (nem látszik). Új beírása felülírja.' : 'Pl. Ágnes'}">
+      <p class="tabs-note" style="margin:6px 0 0">A megadott keresztnév sehol nem jelenik meg (sem a felületen, sem a kimutatásokban), csak a névnapokhoz használjuk. Ha nincs megadva, a név második szavát vesszük. Több keresztnév vesszővel vagy szóközzel elválasztható.</p>
+      ${worker.has_first_name ? '<label class="check"><input type="checkbox" id="clearfn"><span>Megadott keresztnév törlése</span></label>' : ''}
       <button class="btn small" type="submit" style="margin-top:10px">Mentés</button></form>
-    ${namedays.length ? `<p class="tabs-note" style="margin:10px 0 0">Névnap: ${namedays.map((n) => `${shortDate(`2026-${pad(n.mm)}-${pad(n.dd)}`)} (${esc(n.name)})`).join(', ')}</p>` : ''}
+    ${namedays.length ? `<p class="tabs-note" style="margin:10px 0 0">Névnap: ${namedays.map((n) => shortDate(`2026-${pad(n.mm)}-${pad(n.dd)}`)).join(', ')}</p>` : ''}
     <div class="yearcard" id="yc"></div>
     ${signatures.length ? `<div class="field"><span class="label">Aláírt kimutatások</span>${signatures.slice(0, 5).map((s) => `<div class="set-item"><span>${dotted(s.from_date)} – ${dotted(s.to_date)}</span><em class="status ok">Aláírva: ${dotted(s.signed_on)}</em></div>`).join('')}</div>` : ''}
     <div class="field"><span class="label">Tételek</span>
@@ -556,7 +558,7 @@ async function viewWorker(id) {
   document.getElementById('renf').onsubmit = async (e) => {
     e.preventDefault();
     try { const nm = document.getElementById('newname').value;
-      await api(`/workers/${id}`, { method: 'PATCH', body: { ...(nm !== worker.name ? { name: nm } : {}), first_name: document.getElementById('newfn').value } }); toast('Mentve'); viewWorker(id); }
+      await api(`/workers/${id}`, { method: 'PATCH', body: { ...(nm !== worker.name ? { name: nm } : {}), ...(document.getElementById('clearfn')?.checked ? { first_name: '' } : document.getElementById('newfn').value.trim() ? { first_name: document.getElementById('newfn').value } : {}) } }); toast('Mentve'); viewWorker(id); }
     catch (err) { toast(err.message); }
   };
 }
