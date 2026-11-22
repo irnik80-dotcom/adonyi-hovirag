@@ -17,3 +17,7 @@ database_id = "9d6407db-a06e-45c8-bae2-bf30e745a3c0"
 
 [version_metadata]
 binding = "CF_VERSION_METADATA"
+
+# Naponta reggel (UTC 06:00) ellenőrzi, van-e egy hét múlva névnap
+[triggers]
+crons = ["0 6 * * *"]

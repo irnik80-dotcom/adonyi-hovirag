@@ -63,6 +63,13 @@ export const SCHEMA = [
     since TEXT NOT NULL,
     until TEXT
   )`,
+  // Értesítésre feliratkozott eszközök (Web Push)
+  `CREATE TABLE IF NOT EXISTS push_subs (
+    endpoint TEXT PRIMARY KEY,
+    p256dh TEXT NOT NULL DEFAULT '',
+    auth TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )`,
 ];
 
 export const GROUPS_TABLE = `CREATE TABLE IF NOT EXISTS staff_groups (

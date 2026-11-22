@@ -1,6 +1,7 @@
 // Adonyi Hóvirág Óvoda – túlóra/szabadidő nyilvántartás (Cloudflare Worker + D1)
 // Titkok (wrangler secret put): ADMIN_PASSWORD, SESSION_SECRET
 
+import { NEVNAPOK } from './nevnapok.js';
 import { SCHEMA, TEMPLATES_TABLE, DEFAULT_TEMPLATES, GROUPS_TABLE, DEFAULT_GROUPS } from './schema.js';
 
 const COOKIE = 'hovirag_session';
@@ -88,12 +89,76 @@ async function audit(env, action, detail) {
 const isDate = (s) => /^\d{4}-\d{2}-\d{2}$/.test(s) && !Number.isNaN(Date.parse(s));
 const cleanText = (s, max) => String(s ?? '').trim().slice(0, max);
 
+// ---------- névnapok ----------
+const normName = (s) => String(s).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+// A névnaphoz használt keresztnevek: a „keresztnév” mező, ennek hiányában a név második szavától.
+const firstNamesOf = (w) => {
+  const src = w.first_name && w.first_name.trim() ? w.first_name : String(w.name).split(/\s+/).slice(1).join(' ');
+  return src.split(/[,;\s]+/).map(normName).filter(Boolean);
+};
+// A dolgozó névnapjai az évben: [{ mm, dd, name }]
+const nameDaysOf = (w) => {
+  const fn = firstNamesOf(w); const out = [];
+  if (!fn.length) return out;
+  NEVNAPOK.forEach((month, mi) => month.forEach((day, di) => day.split(',').forEach((n) => { if (fn.includes(normName(n))) out.push({ mm: mi + 1, dd: di + 1, name: n.trim() }); })));
+  return out;
+};
+const dayDiff = (isoA, isoB) => Math.round((Date.parse(isoB + 'T00:00:00Z') - Date.parse(isoA + 'T00:00:00Z')) / 864e5);
+// Az aktív dolgozók következő névnapjai a mai naptól számított `days` napon belül (a mai nap is).
+function upcomingNameDays(workers, todayStr, days) {
+  const [ty] = todayStr.split('-').map(Number); const out = [];
+  for (const w of workers) for (const nd of nameDaysOf(w)) {
+    let date = `${ty}-${String(nd.mm).padStart(2, '0')}-${String(nd.dd).padStart(2, '0')}`;
+    if (date < todayStr) date = `${ty + 1}-${date.slice(5)}`;
+    const inDays = dayDiff(todayStr, date);
+    if (inDays <= days) out.push({ worker_id: w.id, name: w.name, nameday: nd.name, date, in_days: inDays });
+  }
+  return out.sort((a, b) => a.in_days - b.in_days || a.name.localeCompare(b.name, 'hu'));
+}
+
+// ---------- Web Push (VAPID, tartalom nélküli értesítés) ----------
+const b64u = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+async function vapidKeys(env) {
+  const pub = await getSetting(env, 'vapid_pub'); const jwk = await getSetting(env, 'vapid_jwk');
+  if (pub && jwk) return { pub, jwk: JSON.parse(jwk) };
+  const kp = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign', 'verify']);
+  const pubRaw = b64u(await crypto.subtle.exportKey('raw', kp.publicKey));
+  const privJwk = await crypto.subtle.exportKey('jwk', kp.privateKey);
+  await putSetting(env, 'vapid_pub', pubRaw); await putSetting(env, 'vapid_jwk', JSON.stringify(privJwk));
+  return { pub: pubRaw, jwk: privJwk };
+}
+async function vapidHeader(env, endpoint) {
+  const { pub, jwk } = await vapidKeys(env);
+  const sub = (await getSetting(env, 'push_sub')) || 'https://adonyi-hovirag.workers.dev';
+  const part = (o) => b64u(enc.encode(JSON.stringify(o)));
+  const head = part({ typ: 'JWT', alg: 'ES256' });
+  const body = part({ aud: new URL(endpoint).origin, exp: Math.floor(Date.now() / 1000) + 12 * 3600, sub });
+  const key = await crypto.subtle.importKey('jwk', jwk, { name: 'ECDSA', namedCurve: 'P-256' }, false, ['sign']);
+  const sig = b64u(await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, key, enc.encode(`${head}.${body}`)));
+  return `vapid t=${head}.${body}.${sig}, k=${pub}`;
+}
+// Minden feliratkozott eszköznek tartalom nélküli értesítést küld; az eszköz a szövegét az /api/push/last végponton kéri le.
+async function pushAll(env) {
+  const subs = (await env.DB.prepare('SELECT endpoint FROM push_subs').all()).results;
+  let sent = 0, removed = 0, failed = 0;
+  for (const s of subs) {
+    try {
+      const res = await fetch(s.endpoint, { method: 'POST', headers: { Authorization: await vapidHeader(env, s.endpoint), TTL: '86400', Urgency: 'normal' } });
+      if (res.ok) sent++;
+      else if (res.status === 404 || res.status === 410) { await env.DB.prepare('DELETE FROM push_subs WHERE endpoint = ?').bind(s.endpoint).run(); removed++; }
+      else failed++;
+    } catch { failed++; }
+  }
+  return { sent, removed, failed, total: subs.length };
+}
+const shortHu = (iso) => new Intl.DateTimeFormat('hu-HU', { month: 'short', day: 'numeric', timeZone: 'UTC' }).format(new Date(iso + 'T12:00:00Z'));
+
 const todayBudapest = () => new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Budapest' }).format(new Date());
 
 // ?1 = a mai nap, ?2 = az előző hónap utolsó napja. Az egyenleg csak a mai napig (és azt is beleértve) rögzített tételeket számolja,
 // a jövőbeli, tervezett szabadidő külön oszlop.
 const BALANCES = `
-  SELECT w.id, w.name, w.active,
+  SELECT w.id, w.name, w.first_name, w.active,
     COALESCE((SELECT SUM(minutes) FROM entries e WHERE e.worker_id = w.id AND e.date <= ?1), 0) AS balance,
     COALESCE((SELECT SUM(minutes) FROM entries e WHERE e.worker_id = w.id AND e.date > ?1), 0) AS planned,
     (SELECT MAX(date) FROM entries e WHERE e.worker_id = w.id AND e.date <= ?1) AS last_date,
@@ -117,6 +182,9 @@ const getGroups = async (env) => (await env.DB.prepare('SELECT id, name FROM sta
 let schemaReady;
 async function runSchema(env) {
   await env.DB.batch(SCHEMA.map((q) => env.DB.prepare(q)));
+  // Keresztnév a névnapokhoz (nem jelenik meg a listákban)
+  try { await env.DB.prepare('SELECT first_name FROM workers LIMIT 1').first(); }
+  catch { await env.DB.prepare("ALTER TABLE workers ADD COLUMN first_name TEXT NOT NULL DEFAULT ''").run(); }
   const had = await env.DB.prepare("SELECT 1 AS x FROM sqlite_master WHERE type = 'table' AND name = 'note_templates'").first();
   await env.DB.prepare(TEMPLATES_TABLE).run();
   if (!had) {
@@ -222,7 +290,7 @@ export default {
              AND NOT EXISTS (SELECT 1 FROM entries r WHERE r.reverses_id = e.id)
            ORDER BY w.name COLLATE NOCASE`).bind(today).all()).results;
         const warnHigh = Number((await getSetting(env, 'warn_high_min')) ?? 2400);
-        return json({ today, prev_month_end: prevEnd, workers: results, upcoming, today_off: todayOff, groups: await getGroups(env), warn_high_min: warnHigh });
+        return json({ today, prev_month_end: prevEnd, workers: results, upcoming, today_off: todayOff, namedays: upcomingNameDays(results.filter((x) => x.active === 1), today, 7), groups: await getGroups(env), warn_high_min: warnHigh });
       }
 
       if (path === '/api/workers' && method === 'POST') {
@@ -237,7 +305,7 @@ export default {
           if (!wantGroups.length) return fail(400, 'Válassz munkakört a dolgozónak.');
           if (!(await env.DB.prepare('SELECT id FROM staff_groups WHERE id = ?').bind(wantGroups[0]).first())) return fail(400, 'Nincs ilyen munkakör.');
         }
-        const w = await env.DB.prepare('INSERT INTO workers (name) VALUES (?) RETURNING id').bind(name).first();
+        const w = await env.DB.prepare('INSERT INTO workers (name, first_name) VALUES (?, ?) RETURNING id').bind(name, cleanText(b.first_name, 60)).first();
         if (opening !== 0) {
           const date = isDate(b.date) ? b.date : today;
           await env.DB.prepare("INSERT INTO entries (worker_id, date, minutes, kind, note) VALUES (?, ?, ?, 'opening', ?)")
@@ -258,6 +326,7 @@ export default {
         const cur = await env.DB.prepare('SELECT id FROM workers WHERE id = ?').bind(id).first();
         if (!cur) return fail(404, 'Nincs ilyen dolgozó.');
         if (b.name !== undefined) await env.DB.prepare('UPDATE workers SET name = ? WHERE id = ?').bind(name, id).run();
+        if (b.first_name !== undefined) await env.DB.prepare('UPDATE workers SET first_name = ? WHERE id = ?').bind(cleanText(b.first_name, 60), id).run();
         // Állapot: active (aktív), parked (parkoltatott, pl. GYES), left (kilépett)
         const status = b.status ?? (b.active !== undefined ? (b.active ? 'active' : 'left') : undefined);
         let note;
@@ -274,7 +343,7 @@ export default {
             await env.DB.prepare('DELETE FROM worker_park WHERE worker_id = ?').bind(id).run();
           }
         }
-        await audit(env, 'worker.update', { id, name: b.name, status, note: note || undefined });
+        await audit(env, 'worker.update', { id, name: b.name, status, note: note || undefined, fn: b.first_name !== undefined ? true : undefined });
         return json({ ok: true });
       }
 
@@ -313,7 +382,7 @@ export default {
       if (path === '/api/workers/bulk' && method === 'POST') {
         const b = await request.json();
         const rows = (Array.isArray(b.rows) ? b.rows : []).slice(0, 100)
-          .map((r) => ({ name: cleanText(r.name, 80), gid: Number(r.group_id), open: Math.trunc(Number(r.opening_minutes) || 0) }));
+          .map((r) => ({ name: cleanText(r.name, 80), fn: cleanText(r.first_name, 60), gid: Number(r.group_id), open: Math.trunc(Number(r.opening_minutes) || 0) }));
         if (!rows.length) return fail(400, 'Nincs felvehető dolgozó.');
         const groupIds = new Set((await getGroups(env)).map((g) => g.id));
         for (const r of rows) {
@@ -323,7 +392,7 @@ export default {
         }
         if (b.date !== undefined && (!isDate(b.date) || b.date > today)) return fail(400, 'A nyitó egyenleg dátuma nem lehet jövőbeli vagy hibás.');
         const date = isDate(b.date) ? b.date : today;
-        const ins = await env.DB.batch(rows.map((r) => env.DB.prepare('INSERT INTO workers (name) VALUES (?) RETURNING id').bind(r.name)));
+        const ins = await env.DB.batch(rows.map((r) => env.DB.prepare('INSERT INTO workers (name, first_name) VALUES (?, ?) RETURNING id').bind(r.name, r.fn)));
         const ids = ins.map((x) => x.results[0].id);
         const stmts = [];
         rows.forEach((r, i) => {
@@ -434,7 +503,7 @@ export default {
           `SELECT e.*, (SELECT 1 FROM entries r WHERE r.reverses_id = e.id) AS reversed
            FROM entries e WHERE e.worker_id = ? ORDER BY e.date DESC, e.id DESC`).bind(id).all();
         const signatures = (await env.DB.prepare('SELECT * FROM signatures WHERE worker_id = ? ORDER BY to_date DESC, id DESC').bind(id).all()).results;
-        return json({ today, worker, entries: results, signatures, groups: await getGroups(env) });
+        return json({ today, worker, entries: results, signatures, namedays: nameDaysOf(worker), groups: await getGroups(env) });
       }
 
       if (path === '/api/entries' && method === 'POST') {
@@ -584,6 +653,34 @@ export default {
         return json({ today, month, entries });
       }
 
+      if (path === '/api/push/key' && method === 'GET') {
+        const n = (await env.DB.prepare('SELECT COUNT(*) AS n FROM push_subs').first()).n;
+        return json({ key: (await vapidKeys(env)).pub, subscribed: n });
+      }
+      if (path === '/api/push/subscribe' && method === 'POST') {
+        const b = await request.json();
+        const endpoint = String(b.endpoint || '');
+        if (!/^https?:\/\//.test(endpoint) || endpoint.length > 1000) return fail(400, 'Hibás feliratkozás.');
+        await env.DB.prepare('INSERT INTO push_subs (endpoint, p256dh, auth) VALUES (?, ?, ?) ON CONFLICT(endpoint) DO UPDATE SET p256dh = excluded.p256dh, auth = excluded.auth')
+          .bind(endpoint, String(b.keys?.p256dh || ''), String(b.keys?.auth || '')).run();
+        await putSetting(env, 'push_sub', url.origin);
+        await audit(env, 'push.subscribe', {});
+        return json({ ok: true });
+      }
+      if (path === '/api/push/unsubscribe' && method === 'POST') {
+        await env.DB.prepare('DELETE FROM push_subs WHERE endpoint = ?').bind(String((await request.json()).endpoint || '')).run();
+        return json({ ok: true });
+      }
+      if (path === '/api/push/last' && method === 'GET') {
+        return json({ text: (await getSetting(env, 'push_last_text')) || '' });
+      }
+      if (path === '/api/push/test' && method === 'POST') {
+        await putSetting(env, 'push_last_text', 'Teszt értesítés: az értesítések működnek ezen az eszközön.');
+        const r = await pushAll(env);
+        await audit(env, 'push.test', r);
+        return json(r);
+      }
+
       if (path === '/api/backup' && method === 'GET') {
         const workers = (await env.DB.prepare('SELECT * FROM workers ORDER BY id').all()).results;
         const entries = (await env.DB.prepare('SELECT * FROM entries ORDER BY id').all()).results;
@@ -647,5 +744,22 @@ export default {
     }
 
     return fail(404, 'Nincs ilyen végpont.');
+  },
+
+  // Naponta egyszer (wrangler.toml cron): ha egy hét múlva valakinek névnapja van, értesítést küld a feliratkozott eszközöknek.
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil((async () => {
+      await ensureSchema(env);
+      const today = todayBudapest();
+      const workers = (await env.DB.prepare('SELECT id, name, first_name FROM workers WHERE active = 1').all()).results;
+      const due = upcomingNameDays(workers, today, 7).filter((x) => x.in_days === 7);
+      if (!due.length) return;
+      const target = due[0].date;
+      if ((await getSetting(env, 'push_last_target')) === target) return;
+      await putSetting(env, 'push_last_target', target);
+      await putSetting(env, 'push_last_text', `Egy hét múlva névnapja van: ${due.map((x) => x.name).join(', ')} (${shortHu(target)}).`);
+      const r = await pushAll(env);
+      await audit(env, 'push.sent', { date: target, count: due.length, ...r });
+    })());
   },
 };

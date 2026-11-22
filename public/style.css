@@ -376,3 +376,6 @@ h1,h2,.hello h1{font-weight:800;letter-spacing:-.02em}
 @media (prefers-color-scheme:dark){:root{--s4:#F2B544;--s5:#A66CB8}}
 .bulkimp{margin-top:18px}
 .bulkimp summary{list-style:none}
+
+.nameday{border:1.5px solid var(--s3)}
+.nameday a b{min-width:64px}

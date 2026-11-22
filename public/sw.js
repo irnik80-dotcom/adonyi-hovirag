@@ -46,3 +46,23 @@ self.addEventListener('fetch', (e) => {
     e.respondWith(staleWhileRevalidate(req));
   }
 });
+
+// Értesítés (Web Push): az üzenet szövegét az alkalmazás szervere adja, ezért az értesítésnek nincs tartalma.
+self.addEventListener('push', (e) => {
+  e.waitUntil((async () => {
+    let text = 'Névnap közeledik. Nyisd meg az alkalmazást a részletekért.';
+    try {
+      const r = await fetch('/api/push/last', { credentials: 'same-origin' });
+      if (r.ok) { const d = await r.json(); if (d.text) text = d.text; }
+    } catch { /* offline: marad az általános szöveg */ }
+    await self.registration.showNotification('HÓVIRÁG · Névnap', { body: text, icon: '/icons/icon-192.png', badge: '/icons/icon-192.png', tag: 'nevnap', data: { url: '/' } });
+  })());
+});
+self.addEventListener('notificationclick', (e) => {
+  e.notification.close();
+  e.waitUntil((async () => {
+    const all = await clients.matchAll({ type: 'window', includeUncontrolled: true });
+    for (const c of all) { if ('focus' in c) { await c.focus(); return; } }
+    await clients.openWindow('/');
+  })());
+});

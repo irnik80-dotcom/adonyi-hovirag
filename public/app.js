@@ -160,7 +160,7 @@ const setPref = (k, v) => { try { localStorage.setItem('hovirag_' + k, v); } cat
 
 async function viewList() {
   $app.innerHTML = '<p class="empty">Betöltés…</p>';
-  const { workers, upcoming, today_off: todayOff, groups, warn_high_min: warnHigh, prev_month_end: prevEnd } = await api('/workers');
+  const { workers, upcoming, today_off: todayOff, namedays = [], groups, warn_high_min: warnHigh, prev_month_end: prevEnd } = await api('/workers');
   const active = workers.filter(isAct);
   const total = active.reduce((s, w) => s + w.balance, 0);
   const f = { g: 0, sort: pref('sort', 'bal'), dir: pref('dir', 'desc'), grp: pref('grp', '0') === '1' };
@@ -190,6 +190,8 @@ async function viewList() {
       ${segHtml}
       <div class="pills"><span class="pill">${active.length} dolgozó</span>${upcoming.length ? `<span class="pill">${upcoming.length} tervezett szabadidő</span>` : ''}</div></div>
     ${warns.length ? `<details class="warnlist" ${warns.length === 1 ? 'open' : ''}><summary>${warns.length} figyelmeztetés</summary>${warns.join('')}</details>` : ''}
+    ${namedays.length ? `<div class="upcoming nameday"><span class="label">Névnapok · következő 7 nap</span>${namedays.map((n) => `
+      <a href="#/dolgozo/${n.worker_id}"><b>${n.in_days === 0 ? 'ma' : n.in_days === 1 ? 'holnap' : `${n.in_days} nap`}</b><span>${esc(n.name)} · ${esc(n.nameday)}</span><em>${shortDate(n.date)}</em></a>`).join('')}</div>` : ''}
     ${todayOff.length ? `<div class="upcoming todayoff"><span class="label">Ma szabadidőn</span>${todayOff.map((u) => `
       <a href="#/dolgozo/${u.worker_id}"><b>${fmt(-u.minutes)}</b><span>${esc(u.name)}${u.note ? ` · ${esc(u.note)}` : ''}</span><em></em></a>`).join('')}</div>` : ''}
     ${upcoming.length ? `<div class="upcoming"><span class="label">Közelgő szabadidő</span>${upcoming.map((u) => `
@@ -451,7 +453,7 @@ const eduYearStart = (d = new Date()) => `${d.getMonth() >= 8 ? d.getFullYear() 
 
 async function viewWorker(id) {
   $app.innerHTML = '<p class="empty">Betöltés…</p>';
-  const { worker, entries, signatures, groups, today: srvToday } = await api(`/workers/${id}/entries`);
+  const { worker, entries, signatures, groups, namedays = [], today: srvToday } = await api(`/workers/${id}/entries`);
   const myGroups = groups.filter((g) => gidsOf(worker).includes(g.id));
   const f = { type: 'all', range: 'all', year: 'edu' };
   const isPlanned = (e) => e.date > srvToday && !e.reversed && e.kind === 'use';
@@ -465,9 +467,12 @@ async function viewWorker(id) {
       ${worker.planned ? `<div class="pills"><span class="pill">Tervezett: ${fmt(worker.planned, true)}</span></div>` : ''}</div>
     ${worker.active === 1 ? `<a class="btn" href="#/uj?w=${worker.id}" style="text-decoration:none">+ Új tétel ennek a dolgozónak</a>` : ''}
     <div class="row" style="margin-top:10px"><a class="btn ghost small" style="flex:1;text-align:center;text-decoration:none" href="#/kimutatas?w=${worker.id}">Kimutatás</a>
-      <button class="btn ghost small" style="flex:1" id="ren" type="button">Átnevezés</button></div>
-    <form id="renf" class="row" style="margin-top:10px" hidden><input class="input" id="newname" maxlength="80" value="${esc(worker.name)}" aria-label="Új név" required>
-      <button class="btn small" type="submit">Mentés</button></form>
+      <button class="btn ghost small" style="flex:1" id="ren" type="button">Név / névnap</button></div>
+    <form id="renf" style="margin-top:10px" hidden><label class="label" for="newname">Név</label><input class="input" id="newname" maxlength="80" value="${esc(worker.name)}" required>
+      <label class="label" for="newfn" style="margin-top:10px">Keresztnév a névnaphoz (nem kötelező)</label><input class="input" id="newfn" maxlength="60" value="${esc(worker.first_name || '')}" placeholder="Pl. Ágnes">
+      <p class="tabs-note" style="margin:6px 0 0">Nem jelenik meg a listákban, csak a névnaphoz használjuk. Ha üres, a név második szavát vesszük. Több keresztnév vesszővel vagy szóközzel elválasztható.</p>
+      <button class="btn small" type="submit" style="margin-top:10px">Mentés</button></form>
+    ${namedays.length ? `<p class="tabs-note" style="margin:10px 0 0">Névnap: ${namedays.map((n) => `${shortDate(`2026-${pad(n.mm)}-${pad(n.dd)}`)} (${esc(n.name)})`).join(', ')}</p>` : ''}
     <div class="yearcard" id="yc"></div>
     ${signatures.length ? `<div class="field"><span class="label">Aláírt kimutatások</span>${signatures.slice(0, 5).map((s) => `<div class="set-item"><span>${dotted(s.from_date)} – ${dotted(s.to_date)}</span><em class="status ok">Aláírva: ${dotted(s.signed_on)}</em></div>`).join('')}</div>` : ''}
     <div class="field"><span class="label">Tételek</span>
@@ -550,7 +555,8 @@ async function viewWorker(id) {
   document.getElementById('ren').onclick = () => { const fm = document.getElementById('renf'); fm.hidden = !fm.hidden; if (!fm.hidden) document.getElementById('newname').focus(); };
   document.getElementById('renf').onsubmit = async (e) => {
     e.preventDefault();
-    try { await api(`/workers/${id}`, { method: 'PATCH', body: { name: document.getElementById('newname').value } }); toast('Átnevezve'); viewWorker(id); }
+    try { const nm = document.getElementById('newname').value;
+      await api(`/workers/${id}`, { method: 'PATCH', body: { ...(nm !== worker.name ? { name: nm } : {}), first_name: document.getElementById('newfn').value } }); toast('Mentve'); viewWorker(id); }
     catch (err) { toast(err.message); }
   };
 }
@@ -569,11 +575,13 @@ async function viewSettings() {
       <div class="field"><span class="label">Nyitó egyenleg a papírról</span><div class="row">
         <input class="input" id="oh" type="number" inputmode="numeric" min="0" placeholder="óra" aria-label="Nyitó óra">
         <input class="input" id="om" type="number" inputmode="numeric" min="0" max="59" placeholder="perc" aria-label="Nyitó perc"></div></div>
+      <div class="field"><label for="fn">Keresztnév a névnaphoz (nem kötelező)</label><input class="input" id="fn" maxlength="60" placeholder="Pl. Ágnes (ha a név „-né” végű)">
+        <p class="tabs-note" style="margin:6px 0 0">Nem jelenik meg a listákban, csak a névnapokhoz használjuk. Ha üres, a név második szavát vesszük.</p></div>
       <div class="field"><label for="od">Nyitó egyenleg dátuma</label><input class="input" id="od" type="date" value="${openingDefault()}" max="${today()}" required>
         <p class="tabs-note" style="margin:6px 0 0">Ettől a naptól számít az átvett egyenleg. Induláskor szeptember 1., később a mai nap az alapérték.</p></div>
       <div id="msg"></div><button class="btn" type="submit">Dolgozó felvétele</button></form>
     <details class="field bulkimp"><summary class="label" style="cursor:pointer">Dolgozók tömeges felvétele (induláshoz)</summary>
-      <p class="tabs-note" style="margin:6px 0 8px">Soronként egy dolgozó: <b>Név; Munkakör; Nyitó egyenleg</b>. Excelből is beilleszthető (tabulátorral elválasztva). Nyitó egyenleg: <b>12:30</b>, <b>12 ó 30 p</b> vagy <b>12,5</b> (óra). Munkakör például: Pedagógus, Asszisztens, Dajka, Egyéb.</p>
+      <p class="tabs-note" style="margin:6px 0 8px">Soronként egy dolgozó: <b>Név; Munkakör; Nyitó egyenleg; Keresztnév</b> (a negyedik nem kötelező, a névnaphoz kell, ha a név „-né” végű). Excelből is beilleszthető (tabulátorral elválasztva). Nyitó egyenleg: <b>12:30</b>, <b>12 ó 30 p</b> vagy <b>12,5</b> (óra). Munkakör például: Pedagógus, Asszisztens, Dajka, Egyéb.</p>
       <label class="label" for="bdate">Nyitó egyenleg dátuma (mindenkinél)</label>
       <input class="input" id="bdate" type="date" value="${openingDefault()}" max="${today()}" style="margin-bottom:10px">
       <textarea class="input" id="bulk" rows="6" placeholder="Kovács Ágnes; Pedagógus; 12:30&#10;Tóth Mária; Dajka; 7:10&#10;Nagy Zsuzsanna; Asszisztens; 0"></textarea>
@@ -606,6 +614,10 @@ async function viewSettings() {
       <input class="input" id="pn2" type="password" autocomplete="new-password" autocapitalize="off" placeholder="Új jelszó mégegyszer" required style="margin-top:8px">
       <div id="pmsg"></div><button class="btn ghost" type="submit">Jelszó módosítása</button></form></div>
     <div class="field"><a class="btn ghost" style="text-decoration:none;margin-top:0" href="#/naplo">Napló megtekintése</a></div>
+    <div class="field"><span class="label">Értesítések (névnapok)</span>
+      <p class="tabs-note" style="margin:0 0 8px">Egy héttel a névnap előtt értesítést kapsz ezen az eszközön. Eszközönként külön kell bekapcsolni.</p>
+      <div id="pstat" class="tabs-note" style="margin:0 0 8px"></div>
+      <div class="row"><button class="btn small" type="button" id="pon">Bekapcsolás</button><button class="btn ghost small" type="button" id="ptest" hidden>Teszt értesítés</button><button class="btn ghost small" type="button" id="poff" hidden>Kikapcsolás</button></div></div>
     <div class="field"><span class="label">Verzió</span><p class="tabs-note" id="ver" style="margin:0">Betöltés…</p></div>
     <div class="field"><span class="label">Telepítés a telefonra</span>
       <p class="tabs-note" style="margin:0">iPhone: Safari → Megosztás → <b>Főképernyőhöz adás</b>. Android: Chrome → ⋮ menü → <b>Alkalmazás telepítése</b>.</p></div>
@@ -619,7 +631,7 @@ async function viewSettings() {
     e.preventDefault();
     if (groups.length && newGroups.size !== 1) { $('msg').innerHTML = '<div class="err">Válassz munkakört a dolgozónak.</div>'; $('ng').scrollIntoView({ block: 'center', behavior: 'smooth' }); return; }
     const min = (+$('oh').value || 0) * 60 + (+$('om').value || 0);
-    try { await api('/workers', { method: 'POST', body: { name: $('nm').value, opening_minutes: min, date: $('od').value || openingDefault(), group_ids: [...newGroups] } }); toast('Felvéve'); viewSettings(); }
+    try { await api('/workers', { method: 'POST', body: { name: $('nm').value, opening_minutes: min, date: $('od').value || openingDefault(), first_name: $('fn').value, group_ids: [...newGroups] } }); toast('Felvéve'); viewSettings(); }
     catch (err) { $('msg').innerHTML = `<div class="err">${esc(err.message)}</div>`; }
   };
   document.querySelectorAll('[data-st]').forEach((b) => (b.onclick = async () => {
@@ -680,11 +692,11 @@ async function viewSettings() {
     const existing = new Set(workers.map((w) => norm(w.name)));
     const seen = new Set();
     parsed = $('bulk').value.split(/\r?\n/).map((l) => l.trim()).filter(Boolean).map((line) => {
-      const [name = '', grp = '', open = ''] = line.split(/;|\t/).map((x) => x.trim());
+      const [name = '', grp = '', open = '', fnm = ''] = line.split(/;|\t/).map((x) => x.trim());
       const g = matchGroup(grp), min = parseOpen(open);
       const err = !name ? 'hiányzik a név' : existing.has(norm(name)) ? 'már van ilyen nevű dolgozó' : seen.has(norm(name)) ? 'kétszer szerepel' : groups.length && !g ? `ismeretlen munkakör: „${grp}”` : min === null ? `érthetetlen nyitó egyenleg: „${open}”` : '';
       seen.add(norm(name));
-      return { name, g, min, err };
+      return { name, g, min, err, fnm };
     });
     const ok = parsed.filter((r) => !r.err);
     $('bprev').innerHTML = `<div class="entries" style="margin-top:10px">${parsed.map((r) => `<div class="entry ${r.err ? 'dim' : ''}"><div class="meta"><b>${esc(r.name || '—')}</b><span>${r.err ? `<em class="status warn">${esc(r.err)}</em>` : `${esc(r.g?.name || '')} · nyitó: ${fmt(r.min || 0)}`}</span></div></div>`).join('')}</div>
@@ -693,10 +705,39 @@ async function viewSettings() {
     const go = document.getElementById('bgo');
     if (go) go.onclick = async () => {
       go.disabled = true;
-      try { const r = await api('/workers/bulk', { method: 'POST', body: { date: $('bdate').value || openingDefault(), rows: ok.map((x) => ({ name: x.name, group_id: x.g?.id, opening_minutes: x.min })) } }); toast(`${r.added} dolgozó felvéve`); viewSettings(); }
+      try { const r = await api('/workers/bulk', { method: 'POST', body: { date: $('bdate').value || openingDefault(), rows: ok.map((x) => ({ name: x.name, first_name: x.fnm, group_id: x.g?.id, opening_minutes: x.min })) } }); toast(`${r.added} dolgozó felvéve`); viewSettings(); }
       catch (err) { toast(err.message); go.disabled = false; }
     };
   };
+  // ---- értesítések (Web Push)
+  const b64uToBytes = (str) => Uint8Array.from(atob(str.replace(/-/g, '+').replace(/_/g, '/')), (c) => c.charCodeAt(0));
+  const pushOk = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+  const standalone = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+  const ios = /iphone|ipad|ipod/i.test(navigator.userAgent);
+  const pushState = async () => {
+    if (!pushOk) { $('pstat').textContent = ios && !standalone ? 'iPhone-on az értesítéshez előbb add a főképernyőhöz az alkalmazást (Megosztás → Főképernyőhöz adás), és onnan nyisd meg.' : 'Ez a böngésző nem támogatja az értesítéseket.'; $('pon').hidden = true; return; }
+    if (Notification.permission === 'denied') { $('pstat').textContent = 'Az értesítések le vannak tiltva. A telefon beállításaiban engedélyezheted az alkalmazásnak.'; $('pon').hidden = true; return; }
+    let sub = null; try { sub = await (await navigator.serviceWorker.ready).pushManager.getSubscription(); } catch { /* nincs */ }
+    $('pstat').textContent = sub ? 'Bekapcsolva ezen az eszközön.' : 'Kikapcsolva ezen az eszközön.';
+    $('pon').hidden = Boolean(sub); $('poff').hidden = !sub; $('ptest').hidden = !sub;
+  };
+  pushState();
+  $('pon').onclick = async () => {
+    try {
+      const perm = await Notification.requestPermission();
+      if (perm !== 'granted') { toast('Az értesítés nincs engedélyezve.'); return pushState(); }
+      const { key } = await api('/push/key');
+      const reg = await navigator.serviceWorker.ready;
+      const sub = (await reg.pushManager.getSubscription()) || await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64uToBytes(key) });
+      await api('/push/subscribe', { method: 'POST', body: sub.toJSON() });
+      toast('Értesítések bekapcsolva'); pushState();
+    } catch (err) { toast(err.message || 'Nem sikerült bekapcsolni.'); }
+  };
+  $('poff').onclick = async () => {
+    try { const sub = await (await navigator.serviceWorker.ready).pushManager.getSubscription(); if (sub) { await api('/push/unsubscribe', { method: 'POST', body: { endpoint: sub.endpoint } }); await sub.unsubscribe(); } toast('Kikapcsolva'); pushState(); }
+    catch (err) { toast(err.message); }
+  };
+  $('ptest').onclick = async () => { try { const r = await api('/push/test', { method: 'POST', body: {} }); toast(r.sent ? `Elküldve (${r.sent} eszköz)` : 'Nem sikerült elküldeni.'); } catch (err) { toast(err.message); } };
   api('/version').then((v) => {
     $('ver').textContent = v.id ? `${v.id}${v.timestamp ? ' · telepítve: ' + new Intl.DateTimeFormat('hu-HU', { timeZone: 'Europe/Budapest', dateStyle: 'medium', timeStyle: 'short' }).format(new Date(v.timestamp)) : ''}` : 'Nem elérhető (helyi futtatás).';
   }).catch(() => { $('ver').textContent = 'Nem elérhető.'; });
@@ -911,9 +952,12 @@ async function viewAudit() {
     switch (r.action) {
       case 'worker.create': return `Dolgozó felvéve: ${d.name ? esc(d.name) : `törölt dolgozó (#${d.id})`}${d.opening ? ` (nyitó: ${fmt(d.opening)})` : ''}`;
       case 'migration.opening': return `Nyitó egyenlegek dátuma ${dotted(d.date)}-ra állítva (${d.opening} tétel), ${d.signatures} aláírás-jelölés visszavonva${d.earlier ? `. Figyelem: ${d.earlier} nem nyitó tétel dátuma korábbi, mint ${dotted(d.date)}` : ''}`;
+      case 'push.sent': return `Névnap-értesítés elküldve (${d.sent} eszköz)`;
+      case 'push.test': return `Teszt értesítés (${d.sent} eszköz)`;
+      case 'push.subscribe': return 'Értesítés bekapcsolva egy eszközön';
       case 'worker.bulk': return `Dolgozók tömeges felvétele: ${d.count} fő`;
       case 'worker.delete': return `Dolgozó véglegesen törölve (#${d.id}, ${d.entries} tétel)`;
-      case 'worker.update': return d.deleted ? `Dolgozó módosítva (törölt dolgozó, #${d.id})` : d.name !== undefined ? `Átnevezve: ${esc(d.name)}` : d.status === 'parked' ? `Parkoltatva: ${esc(name(d.id))}${d.note ? ` (${esc(d.note)})` : ''}` : d.status === 'left' || d.active === false ? `Kilépettnek jelölve: ${esc(name(d.id))}` : `Aktiválva: ${esc(name(d.id))}`;
+      case 'worker.update': return d.deleted ? `Dolgozó módosítva (törölt dolgozó, #${d.id})` : d.fn && d.name === undefined && !d.status ? `Keresztnév (névnap) módosítva: ${esc(name(d.id))}` : d.name !== undefined ? `Átnevezve: ${esc(d.name)}` : d.status === 'parked' ? `Parkoltatva: ${esc(name(d.id))}${d.note ? ` (${esc(d.note)})` : ''}` : d.status === 'left' || d.active === false ? `Kilépettnek jelölve: ${esc(name(d.id))}` : `Aktiválva: ${esc(name(d.id))}`;
       case 'entry.create': return `Rögzítve: ${(d.workerIds || []).map((x) => esc(name(x))).join(', ')} · ${fmt(d.minutes, true)} · ${d.dates ? `${d.dates.length} nap (${dotted(d.dates[0])} – ${dotted(d.dates[d.dates.length - 1])})` : dotted(d.date)}${d.overrideSigned ? ' · <b>aláírt időszakba</b>' : ''}${d.offline ? ' · offline rögzítve' : ''}`;
       case 'entry.undo': return `Visszavonva (törölve): ${(d.ids || []).length} tétel`;
       case 'entry.reverse': return `Sztornó rögzítve (#${d.reverses} tételhez)`;
