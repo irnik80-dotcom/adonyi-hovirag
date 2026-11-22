@@ -309,8 +309,10 @@ export default {
            WHERE e.date = ? AND e.kind = 'use' AND w.active = 1
              AND NOT EXISTS (SELECT 1 FROM entries r WHERE r.reverses_id = e.id)
            ORDER BY w.name COLLATE NOCASE`).bind(today).all()).results;
+        const leaveToday = (await env.DB.prepare(
+          `SELECT l.id, w.id AS worker_id, w.name FROM leaves l JOIN workers w ON w.id = l.worker_id WHERE l.date = ? AND w.active = 1 ORDER BY w.name COLLATE NOCASE`).bind(today).all()).results;
         const warnHigh = Number((await getSetting(env, 'warn_high_min')) ?? 2400);
-        return json({ today, prev_month_end: prevEnd, workers: results.map(hideFirstName), upcoming, today_off: todayOff, namedays: upcomingNameDays(results.filter((x) => x.active === 1), today, 7), groups: await getGroups(env), warn_high_min: warnHigh });
+        return json({ today, prev_month_end: prevEnd, workers: results.map(hideFirstName), upcoming, today_off: todayOff, leave_today: leaveToday, namedays: upcomingNameDays(results.filter((x) => x.active === 1), today, 7), groups: await getGroups(env), warn_high_min: warnHigh });
       }
 
       if (path === '/api/workers' && method === 'POST') {
@@ -391,6 +393,8 @@ export default {
           env.DB.prepare('DELETE FROM signatures WHERE worker_id = ?').bind(id),
           env.DB.prepare('DELETE FROM staff_group_members WHERE worker_id = ?').bind(id),
           env.DB.prepare('DELETE FROM worker_park WHERE worker_id = ?').bind(id),
+          env.DB.prepare('DELETE FROM leaves WHERE worker_id = ?').bind(id),
+          env.DB.prepare('DELETE FROM leave_budget WHERE worker_id = ?').bind(id),
           env.DB.prepare('DELETE FROM workers WHERE id = ?').bind(id),
           ...scrub,
         ]);
@@ -670,7 +674,10 @@ export default {
            WHERE e.kind = 'use' AND w.active = 1 AND e.date >= ? AND e.date <= ?
              AND NOT EXISTS (SELECT 1 FROM entries r WHERE r.reverses_id = e.id)
            ORDER BY e.date, w.name COLLATE NOCASE`).bind(`${month}-01`, `${month}-31`).all()).results;
-        return json({ today, month, entries });
+        const leaves = (await env.DB.prepare(
+          `SELECT l.id, l.date, w.id AS worker_id, w.name FROM leaves l JOIN workers w ON w.id = l.worker_id
+           WHERE w.active = 1 AND l.date >= ? AND l.date <= ? ORDER BY l.date, w.name COLLATE NOCASE`).bind(`${month}-01`, `${month}-31`).all()).results;
+        return json({ today, month, entries, leaves });
       }
 
       if (path === '/api/push/key' && method === 'GET') {
@@ -699,6 +706,100 @@ export default {
         const r = await pushAll(env);
         await audit(env, 'push.test', r);
         return json(r);
+      }
+
+      // ---------- szabadságok ----------
+      const yearOf = (v) => { const y = Number(v); return Number.isInteger(y) && y >= 2000 && y <= 2100 ? y : Number(today.slice(0, 4)); };
+      if (path === '/api/leave/overview' && method === 'GET') {
+        const year = yearOf(url.searchParams.get('year'));
+        const ws = (await env.DB.prepare(
+          `SELECT w.id, w.name, (SELECT group_id FROM staff_group_members g WHERE g.worker_id = w.id) AS group_id FROM workers w WHERE w.active = 1 ORDER BY w.name COLLATE NOCASE`).all()).results;
+        const budgets = (await env.DB.prepare('SELECT * FROM leave_budget WHERE year IN (?1, ?2)').bind(year, year - 1).all()).results;
+        const used = (await env.DB.prepare(
+          `SELECT worker_id, CAST(substr(date, 1, 4) AS INTEGER) AS y, COUNT(*) AS n, SUM(CASE WHEN date <= ?3 THEN 1 ELSE 0 END) AS past
+           FROM leaves WHERE substr(date, 1, 4) IN (?1, ?2) GROUP BY worker_id, y`).bind(String(year), String(year - 1), today).all()).results;
+        const out = ws.map((x) => {
+          const b = budgets.find((r) => r.worker_id === x.id && r.year === year) || { entitlement: 0, carry: 0 };
+          const pb = budgets.find((r) => r.worker_id === x.id && r.year === year - 1) || { entitlement: 0, carry: 0 };
+          const u = used.find((r) => r.worker_id === x.id && r.y === year) || { n: 0, past: 0 };
+          const pu = used.find((r) => r.worker_id === x.id && r.y === year - 1) || { n: 0 };
+          return { worker_id: x.id, name: x.name, group_id: x.group_id, entitlement: b.entitlement, carry: b.carry, used: u.past, planned: u.n - u.past,
+            remaining: b.entitlement + b.carry - u.n, prev_remaining: pb.entitlement + pb.carry - pu.n, has_prev: Boolean(budgets.find((r) => r.worker_id === x.id && r.year === year - 1)) };
+        });
+        return json({ year, today, workers: out, groups: await getGroups(env) });
+      }
+      m = path.match(/^\/api\/leave\/worker\/(\d+)$/);
+      if (m && method === 'GET') {
+        const id = Number(m[1]); const year = yearOf(url.searchParams.get('year'));
+        const wk = await env.DB.prepare('SELECT id, name, active FROM workers WHERE id = ?').bind(id).first();
+        if (!wk) return fail(404, 'Nincs ilyen dolgozó.');
+        const b = (await env.DB.prepare('SELECT entitlement, carry FROM leave_budget WHERE worker_id = ? AND year = ?').bind(id, year).first()) || { entitlement: 0, carry: 0 };
+        const pb = await env.DB.prepare('SELECT entitlement, carry FROM leave_budget WHERE worker_id = ? AND year = ?').bind(id, year - 1).first();
+        const pu = (await env.DB.prepare("SELECT COUNT(*) AS n FROM leaves WHERE worker_id = ? AND substr(date, 1, 4) = ?").bind(id, String(year - 1)).first()).n;
+        const leaves = (await env.DB.prepare('SELECT id, date, note FROM leaves WHERE worker_id = ? AND substr(date, 1, 4) = ? ORDER BY date').bind(id, String(year)).all()).results;
+        return json({ year, today, worker: wk, budget: b, prev_remaining: pb ? pb.entitlement + pb.carry - pu : null, leaves });
+      }
+      if (path === '/api/leave' && method === 'POST') {
+        const b = await request.json();
+        const wid = Number(b.worker_id);
+        const dates = [...new Set((Array.isArray(b.dates) ? b.dates : []).map(String))].sort();
+        if (!dates.length || dates.some((d) => !isDate(d))) return fail(400, 'Hibás dátum.');
+        if (dates.length > 62) return fail(400, 'Legfeljebb 62 nap rögzíthető egyszerre.');
+        if (!(await env.DB.prepare('SELECT id FROM workers WHERE id = ?').bind(wid).first())) return fail(404, 'Nincs ilyen dolgozó.');
+        const note = cleanText(b.note, 120);
+        const out = await env.DB.batch(dates.map((d) => env.DB.prepare('INSERT OR IGNORE INTO leaves (worker_id, date, note) VALUES (?, ?, ?)').bind(wid, d, note)));
+        const added = out.reduce((s, r) => s + (r.meta?.changes || 0), 0);
+        await audit(env, 'leave.add', { workerId: wid, count: added, from: dates[0], to: dates[dates.length - 1] });
+        return json({ added, skipped: dates.length - added }, 201);
+      }
+      if (path === '/api/leave/delete' && method === 'POST') {
+        const ids = ((await request.json()).ids || []).map(Number).filter(Number.isInteger).slice(0, 100);
+        if (!ids.length) return fail(400, 'Nincs törölendő nap.');
+        const ph = ids.map(() => '?').join(',');
+        const rows = (await env.DB.prepare(`SELECT worker_id, date FROM leaves WHERE id IN (${ph}) ORDER BY date`).bind(...ids).all()).results;
+        await env.DB.prepare(`DELETE FROM leaves WHERE id IN (${ph})`).bind(...ids).run();
+        if (rows.length) await audit(env, 'leave.delete', { workerId: rows[0].worker_id, count: rows.length, from: rows[0].date, to: rows[rows.length - 1].date });
+        return json({ ok: true, deleted: rows.length });
+      }
+      if (path === '/api/leave/budget' && method === 'PUT') {
+        const b = await request.json();
+        const wid = Number(b.worker_id), year = yearOf(b.year);
+        const ent = Math.trunc(Number(b.entitlement)), carry = Math.trunc(Number(b.carry) || 0);
+        if (!Number.isInteger(ent) || ent < 0 || ent > 366 || !Number.isInteger(carry) || carry < -366 || carry > 366) return fail(400, 'Hibás napszám.');
+        if (!(await env.DB.prepare('SELECT id FROM workers WHERE id = ?').bind(wid).first())) return fail(404, 'Nincs ilyen dolgozó.');
+        await env.DB.prepare('INSERT INTO leave_budget (worker_id, year, entitlement, carry) VALUES (?, ?, ?, ?) ON CONFLICT(worker_id, year) DO UPDATE SET entitlement = excluded.entitlement, carry = excluded.carry')
+          .bind(wid, year, ent, carry).run();
+        await audit(env, 'leave.budget', { workerId: wid, year, entitlement: ent, carry });
+        return json({ ok: true });
+      }
+      if (path === '/api/leave/report' && method === 'GET') {
+        const year = yearOf(url.searchParams.get('year'));
+        const mq = Number(url.searchParams.get('month'));
+        const month = Number.isInteger(mq) && mq >= 1 && mq <= 12 ? mq : null;
+        const only = url.searchParams.get('worker');
+        const grp = /^g\d+$/.test(only || ''); const one = only && only !== 'all' && !grp;
+        const ws = (await env.DB.prepare(
+          one ? 'SELECT id, name FROM workers WHERE id = ?'
+            : grp ? 'SELECT w.id, w.name FROM workers w JOIN staff_group_members g ON g.worker_id = w.id WHERE w.active = 1 AND g.group_id = ? ORDER BY w.name COLLATE NOCASE'
+            : 'SELECT id, name FROM workers WHERE active = 1 ORDER BY name COLLATE NOCASE')
+          .bind(...(one ? [Number(only)] : grp ? [Number(only.slice(1))] : [])).all()).results;
+        const budgets = (await env.DB.prepare('SELECT * FROM leave_budget WHERE year = ?').bind(year).all()).results;
+        const leaves = (await env.DB.prepare('SELECT worker_id, date FROM leaves WHERE substr(date, 1, 4) = ? ORDER BY date').bind(String(year)).all()).results;
+        const mm = month ? String(month).padStart(2, '0') : null;
+        const periodEnd = month ? `${year}-${mm}-31` : `${year}-12-31`;
+        const rows = ws.map((x) => {
+          const b = budgets.find((r) => r.worker_id === x.id) || { entitlement: 0, carry: 0 };
+          const mine = leaves.filter((l) => l.worker_id === x.id).map((l) => l.date);
+          const ytd = mine.filter((d) => d <= periodEnd);
+          const inPeriod = month ? mine.filter((d) => d.slice(5, 7) === mm) : mine;
+          const byMonth = Array.from({ length: 12 }, (_, i) => mine.filter((d) => Number(d.slice(5, 7)) === i + 1).length);
+          return { worker: x, entitlement: b.entitlement, carry: b.carry, total: b.entitlement + b.carry, used_ytd: ytd.length, used_period: inPeriod.length,
+            planned_after: mine.length - ytd.length, remaining: b.entitlement + b.carry - ytd.length, dates: inPeriod, by_month: byMonth };
+        });
+        let scope = { type: 'all', name: 'Mindenki' };
+        if (grp) scope = { type: 'group', name: (await env.DB.prepare('SELECT name FROM staff_groups WHERE id = ?').bind(Number(only.slice(1))).first())?.name || 'Munkakör' };
+        else if (one) scope = { type: 'worker', name: ws[0]?.name || '' };
+        return json({ year, month, today, generated: today, scope, rows });
       }
 
       if (path === '/api/holidays' && method === 'GET') {
@@ -762,10 +863,12 @@ export default {
         const templates = (await env.DB.prepare('SELECT * FROM note_templates ORDER BY id').all()).results;
         const specialDays = (await env.DB.prepare('SELECT * FROM special_days').all()).results;
         const presets = (await env.DB.prepare('SELECT * FROM entry_presets').all()).results;
+        const leaves = (await env.DB.prepare('SELECT * FROM leaves ORDER BY id').all()).results;
+        const leaveBudget = (await env.DB.prepare('SELECT * FROM leave_budget').all()).results;
         const groups = await getGroups(env);
         const parked = (await env.DB.prepare('SELECT * FROM worker_park').all()).results;
         const members = (await env.DB.prepare('SELECT * FROM staff_group_members').all()).results;
-        return new Response(JSON.stringify({ exported: new Date().toISOString(), workers, entries, signatures, templates, groups, members, parked, specialDays, presets, audit: audit_ }, null, 1), { headers: {
+        return new Response(JSON.stringify({ exported: new Date().toISOString(), workers, entries, signatures, templates, groups, members, parked, specialDays, presets, leaves, leaveBudget, audit: audit_ }, null, 1), { headers: {
           'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store',
           'content-disposition': `attachment; filename="hovirag-mentes-${today}.json"` } });
       }

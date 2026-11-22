@@ -76,6 +76,7 @@ const ICONS = {
   home: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="3.5" width="7" height="7" rx="2"/><rect x="13.5" y="3.5" width="7" height="7" rx="2"/><rect x="3.5" y="13.5" width="7" height="7" rx="2"/><rect x="13.5" y="13.5" width="7" height="7" rx="2"/></svg>',
   doc: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3h7l5 5v13H7z"/><path d="M14 3v5h5M10 13h6M10 17h6"/></svg>',
   cal: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="4" y="5" width="16" height="15" rx="3"/><path d="M4 10h16M9 3v4M15 3v4"/></svg>',
+  case: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7" width="18" height="13" rx="3"/><path d="M9 7V5a2 2 0 012-2h2a2 2 0 012 2v2M3 13h18"/></svg>',
   gear: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/></svg>',
   back: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg>',
   plus: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>',
@@ -87,6 +88,7 @@ const ICONS = {
 const nav = (on) => `<nav class="nav">
   <a href="#/" class="${on === 'list' ? 'on' : ''}">${ICONS.home}<span>Áttekintés</span></a>
   <a href="#/naptar" class="${on === 'cal' ? 'on' : ''}">${ICONS.cal}<span>Naptár</span></a>
+  <a href="#/szabadsag" class="${on === 'leave' ? 'on' : ''}">${ICONS.case}<span>Szabadság</span></a>
   <a href="#/kimutatas" class="${on === 'rep' ? 'on' : ''}">${ICONS.doc}<span>Kimutatás</span></a>
   <a href="#/beallitasok" class="${on === 'set' ? 'on' : ''}">${ICONS.gear}<span>Beállítások</span></a></nav>`;
 
@@ -171,7 +173,7 @@ const setPref = (k, v) => { try { localStorage.setItem('hovirag_' + k, v); } cat
 
 async function viewList() {
   $app.innerHTML = '<p class="empty">Betöltés…</p>';
-  const { workers, upcoming, today_off: todayOff, namedays = [], groups, warn_high_min: warnHigh, prev_month_end: prevEnd } = await api('/workers');
+  const { workers, upcoming, today_off: todayOff, namedays = [], leave_today: leaveToday = [], groups, warn_high_min: warnHigh, prev_month_end: prevEnd } = await api('/workers');
   const active = workers.filter(isAct);
   const total = active.reduce((s, w) => s + w.balance, 0);
   const f = { g: 0, sort: pref('sort', 'bal'), dir: pref('dir', 'desc'), grp: pref('grp', '0') === '1' };
@@ -203,6 +205,8 @@ async function viewList() {
     ${warns.length ? `<details class="warnlist" ${warns.length === 1 ? 'open' : ''}><summary>${warns.length} figyelmeztetés</summary>${warns.join('')}</details>` : ''}
     ${namedays.length ? `<div class="upcoming nameday"><span class="label">Névnapok · következő 7 nap</span>${namedays.map((n) => `
       <a href="#/dolgozo/${n.worker_id}"><b>${n.in_days === 0 ? 'ma' : n.in_days === 1 ? 'holnap' : `${n.in_days} nap`}</b><span>${esc(n.name)}</span><em>${shortDate(n.date)}</em></a>`).join('')}</div>` : ''}
+    ${leaveToday.length ? `<div class="upcoming todayoff"><span class="label">Ma szabadságon</span>${leaveToday.map((u) => `
+      <a href="#/szabadsag/${u.worker_id}"><b>egész nap</b><span>${esc(u.name)}</span><em></em></a>`).join('')}</div>` : ''}
     ${todayOff.length ? `<div class="upcoming todayoff"><span class="label">Ma szabadidőn</span>${todayOff.map((u) => `
       <a href="#/dolgozo/${u.worker_id}"><b>${fmt(-u.minutes)}</b><span>${esc(u.name)}${u.note ? ` · ${esc(u.note)}` : ''}</span><em></em></a>`).join('')}</div>` : ''}
     ${upcoming.length ? `<div class="upcoming"><span class="label">Közelgő szabadidő</span>${upcoming.map((u) => `
@@ -849,6 +853,7 @@ async function viewReportForm(q) {
   const useGroups = groups.filter((g) => active.some((w) => gidsOf(w).includes(g.id)));
   $app.innerHTML = `
     <div class="topbar"><h2>Kimutatás</h2></div>
+    <div class="seg" style="margin-top:10px"><a class="segl on" href="#/kimutatas">Túlóra</a><a class="segl" href="#/kimutatas/szabadsag">Szabadság</a></div>
     <form id="f">
     <div class="field"><span class="label">Forma</span><div class="seg">
       <button type="button" data-mode="sheets" aria-pressed="true">Dolgozónként (aláírásra)</button>
@@ -966,12 +971,13 @@ async function viewCalendar(q) {
   const now = new Date();
   let month = q.get('m') || `${now.getFullYear()}-${pad(now.getMonth() + 1)}`;
   const [y, mo] = month.split('-').map(Number);
-  const [{ entries, today: srvToday }] = await Promise.all([api(`/calendar?month=${month}`), loadHolidays([y])]);
+  const [{ entries, leaves = [], today: srvToday }] = await Promise.all([api(`/calendar?month=${month}`), loadHolidays([y])]);
   const first = new Date(y, mo - 1, 1, 12);
   const days = new Date(y, mo, 0).getDate();
   const lead = (first.getDay() + 6) % 7;
   const byDay = {};
   entries.forEach((e) => { (byDay[e.date] ||= []).push(e); });
+  const byLeave = {}; leaves.forEach((l) => { (byLeave[l.date] ||= []).push(l); });
   const prev = new Date(y, mo - 2, 1, 12), next = new Date(y, mo, 1, 12);
   const key = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}`;
   const title = new Intl.DateTimeFormat('hu-HU', { year: 'numeric', month: 'long' }).format(first);
@@ -980,14 +986,14 @@ async function viewCalendar(q) {
     const date = `${month}-${pad(d)}`; const n = (byDay[date] || []).length;
     const h = HOL.get(date); const dow = new Date(y, mo - 1, d, 12).getDay(); const wkend = dow === 0 || dow === 6;
     const kind = h ? (h.kind === 'off' ? ' hol' : ' wrk') : wkend ? ' wkd' : '';
-    cells.push(`<button type="button" class="day ${date === srvToday ? 'today' : ''} ${date > srvToday ? 'future' : ''}${kind}" data-day="${date}"${h ? ` title="${esc(h.label)}"` : ''}><span>${d}</span>${n ? `<i>${n}</i>` : ''}</button>`);
+    cells.push(`<button type="button" class="day ${date === srvToday ? 'today' : ''} ${date > srvToday ? 'future' : ''}${kind}" data-day="${date}"${h ? ` title="${esc(h.label)}"` : ''}><span>${d}</span>${n ? `<i>${n}</i>` : ''}${(byLeave[date] || []).length ? `<i class="lv">${byLeave[date].length}</i>` : ''}</button>`);
   }
   $app.innerHTML = `
     <div class="topbar"><h2>Naptár</h2></div>
     <div class="calhead"><a class="back" href="#/naptar?m=${key(prev)}" aria-label="Előző hónap">${ICONS.back}</a><b>${title}</b>
       <a class="back" href="#/naptar?m=${key(next)}" aria-label="Következő hónap" style="transform:scaleX(-1)">${ICONS.back}</a></div>
     <div class="calgrid"><span>H</span><span>K</span><span>Sze</span><span>Cs</span><span>P</span><span>Szo</span><span>V</span>${cells.join('')}</div>
-    <p class="tabs-note">A számok azt mutatják, hányan vesznek ki szabadidőt aznap. <b style="color:var(--neg)">Piros szám</b>: munkaszüneti nap, keretes: ledolgozandó munkanap. Az áthelyezett napokat a Beállításokban adhatod meg.</p>
+    <p class="tabs-note"><b style="color:var(--bar)">Zöld szám</b> (bal oldalon): szabadságon lévők, <b style="color:var(--coral)">piros szám</b> (jobb oldalon): szabadidőt kivevők. <b style="color:var(--neg)">Piros szám</b>: munkaszüneti nap, keretes: ledolgozandó munkanap. Az áthelyezett napokat a Beállításokban adhatod meg.</p>
     <div id="dd" class="upcoming" hidden></div>${nav('cal')}`;
   const show = (date) => {
     document.querySelectorAll('.day[data-day]').forEach((c) => { const on = c.dataset.day === date; c.classList.toggle('sel', on); c.setAttribute('aria-pressed', on); });
@@ -995,10 +1001,13 @@ async function viewCalendar(q) {
     const box = document.getElementById('dd'); box.hidden = false;
     const h = HOL.get(date); const dow = new Date(date + 'T12:00:00').getDay();
     const dayNote = h ? `<p class="holnote"><b>${esc(h.label || (h.kind === 'off' ? 'Szabadnap' : 'Munkanap'))}</b>${h.kind === 'work' ? ' · ledolgozandó munkanap' : ' · munkaszüneti nap'}</p>` : dow === 0 || dow === 6 ? '<p class="holnote">Hétvége</p>' : '';
-    box.innerHTML = `<span class="label">${fullDate(date)}</span>${dayNote}${list.length ? list.map((e) => `<a href="#/dolgozo/${e.worker_id}"><b>${fmt(-e.minutes)}</b><span>${esc(e.name)}${e.note ? ` · ${esc(e.note)}` : ''}</span><em></em></a>`).join('') : '<p class="tabs-note" style="margin:0">Ezen a napon senki nem vesz ki szabadidőt.</p>'}`;
+    const lv = byLeave[date] || [];
+    const lvHtml = lv.length ? `<span class="label" style="margin-top:6px">Szabadságon</span>${lv.map((e) => `<a href="#/szabadsag/${e.worker_id}"><b>egész nap</b><span>${esc(e.name)}</span><em></em></a>`).join('')}` : '';
+    const stHtml = list.length ? `<span class="label" style="margin-top:6px">Szabadidő</span>${list.map((e) => `<a href="#/dolgozo/${e.worker_id}"><b>${fmt(-e.minutes)}</b><span>${esc(e.name)}${e.note ? ` · ${esc(e.note)}` : ''}</span><em></em></a>`).join('')}` : '';
+    box.innerHTML = `<span class="label">${fullDate(date)}</span>${dayNote}${lvHtml}${stHtml}${!lv.length && !list.length ? '<p class="tabs-note" style="margin:0">Ezen a napon senki nincs távol.</p>' : ''}`;
   };
   document.querySelectorAll('[data-day]').forEach((b) => (b.onclick = () => show(b.dataset.day)));
-  if (byDay[srvToday]) show(srvToday);
+  if (byDay[srvToday] || byLeave[srvToday]) show(srvToday);
 }
 
 /* ---------- napló ---------- */
@@ -1012,6 +1021,9 @@ async function viewAudit() {
     switch (r.action) {
       case 'worker.create': return `Dolgozó felvéve: ${d.name ? esc(d.name) : `törölt dolgozó (#${d.id})`}${d.opening ? ` (nyitó: ${fmt(d.opening)})` : ''}`;
       case 'migration.opening': return `Nyitó egyenlegek dátuma ${dotted(d.date)}-ra állítva (${d.opening} tétel), ${d.signatures} aláírás-jelölés visszavonva${d.earlier ? `. Figyelem: ${d.earlier} nem nyitó tétel dátuma korábbi, mint ${dotted(d.date)}` : ''}`;
+      case 'leave.add': return `Szabadság rögzítve: ${esc(name(d.workerId))} · ${d.count} nap (${dotted(d.from)} – ${dotted(d.to)})`;
+      case 'leave.delete': return `Szabadság törölve: ${esc(name(d.workerId))} · ${d.count} nap`;
+      case 'leave.budget': return `Szabadság-keret: ${esc(name(d.workerId))} · ${d.year}: ${d.entitlement} nap${d.carry ? ` + ${d.carry} átvitt` : ''}`;
       case 'holiday.set': return `Speciális nap: ${dotted(d.date)} (${d.kind === 'off' ? 'szabadnap' : 'ledolgozandó munkanap'})`;
       case 'holiday.delete': return `Speciális nap törölve: ${dotted(d.date)}`;
       case 'push.sent': return `Névnap-értesítés elküldve (${d.sent} eszköz)`;
@@ -1056,6 +1068,251 @@ async function viewAudit() {
   draw();
 }
 
+
+/* ---------- szabadságok ---------- */
+
+const LEAVE_START_YEAR = 2027;
+const leaveYearDefault = () => Math.max(new Date().getFullYear(), LEAVE_START_YEAR);
+const nextWorkday = (isoDate) => { const d = new Date(isoDate + 'T12:00:00'); do { d.setDate(d.getDate() + 1); } while (isOffDay(iso(d))); return iso(d); };
+// Összefüggő munkanapok egy sorozatba (a hétvége és az ünnepnap nem szakítja meg)
+function leaveRanges(list) {
+  const out = [];
+  for (const l of list) {
+    const last = out[out.length - 1];
+    if (last && nextWorkday(last.to) === l.date) { last.to = l.date; last.days++; last.ids.push(l.id); }
+    else out.push({ from: l.date, to: l.date, days: 1, ids: [l.id], note: l.note || '' });
+  }
+  return out;
+}
+const rangeText = (r) => (r.from === r.to ? dotted(r.from) : `${dotted(r.from)} – ${dotted(r.to)}`);
+const nap = (n) => `${n} nap`;
+const yearNav = (y, base) => `<div class="calhead" style="margin:6px 0 0"><a class="back" href="#${base}?y=${y - 1}" aria-label="Előző év">${ICONS.back}</a><b>${y}</b>
+  <a class="back" href="#${base}?y=${y + 1}" aria-label="Következő év" style="transform:scaleX(-1)">${ICONS.back}</a></div>`;
+
+async function viewLeave(q) {
+  const year = +q.get('y') || leaveYearDefault();
+  const { workers, groups } = await api(`/leave/overview?year=${year}`);
+  const f = { g: 0 };
+  const noBudget = workers.filter((w) => !w.entitlement && !w.carry).length;
+  const totalUsed = workers.reduce((a, w) => a + w.used, 0), totalPlanned = workers.reduce((a, w) => a + w.planned, 0);
+  const usedGroups = groups.filter((g) => workers.some((w) => w.group_id === g.id));
+  $app.innerHTML = `
+    <div class="head"><div><small>Adonyi Hóvirág Óvoda</small><h1>Szabadság</h1></div>${ICONS.flowerArt}</div>
+    <div class="hero"><div class="top"><span>${year}. év · kivett szabadság összesen</span><div class="big">${totalUsed}<span>nap</span></div></div>
+      <div class="pills"><span class="pill">${workers.length} dolgozó</span>${totalPlanned ? `<span class="pill">${totalPlanned} tervezett nap</span>` : ''}</div></div>
+    ${yearNav(year, '/szabadsag')}
+    ${noBudget ? `<p class="tabs-note">${noBudget} dolgozónál még nincs megadva a ${year}. évi szabadság-keret. Koppints a dolgozóra, és add meg.</p>` : ''}
+    <label class="search">${ICONS.search}<input id="q" type="search" placeholder="Név keresése" aria-label="Név keresése"></label>
+    ${usedGroups.length ? `<div class="quick chips" id="gf"><button type="button" data-g="0" aria-pressed="true">Mindenki</button>${usedGroups.map((g) => `<button type="button" data-g="${g.id}">${esc(g.name)}</button>`).join('')}</div>` : ''}
+    <div class="items" id="l" style="margin-top:12px"></div>
+    <a class="fab" href="#/szabadsag/uj?y=${year}">${ICONS.plus}Szabadság</a>${nav('leave')}`;
+  const draw = () => {
+    const qv = document.getElementById('q').value.trim().toLowerCase();
+    const rows = workers.filter((w) => w.name.toLowerCase().includes(qv) && (!f.g || w.group_id === f.g));
+    document.getElementById('l').innerHTML = rows.length ? rows.map((w) => {
+      const total = w.entitlement + w.carry; const usedPct = total > 0 ? Math.min(100, (w.used / total) * 100) : 0; const planPct = total > 0 ? Math.min(100 - usedPct, (w.planned / total) * 100) : 0;
+      const over = total > 0 && w.remaining < 0;
+      return `<a class="item" href="#/szabadsag/${w.worker_id}?y=${year}"><div class="h"><span>${esc(w.name)}</span><em class="${over ? 'neg' : ''}">${total ? `maradék ${nap(w.remaining)}` : 'nincs keret'}</em></div>
+        <div class="track"><s class="${over ? 'neg' : ''}" style="width:${usedPct}%"></s><s class="pl" style="left:${usedPct}%;width:${planPct}%"></s></div>
+        <div class="sub"><span>${total ? `keret ${w.entitlement}${w.carry ? ` + átvitt ${w.carry}` : ''}` : 'a keret nincs megadva'}</span><span>kivett ${w.used}${w.planned ? ` · tervezett ${w.planned}` : ''}</span></div></a>`;
+    }).join('') : '<p class="empty">Nincs találat.</p>';
+  };
+  document.getElementById('q').oninput = draw;
+  document.querySelectorAll('[data-g]').forEach((b) => (b.onclick = () => { f.g = +b.dataset.g; document.querySelectorAll('[data-g]').forEach((x) => x.setAttribute('aria-pressed', x === b)); draw(); }));
+  draw();
+}
+
+async function viewLeaveWorker(id, q) {
+  const year = +q.get('y') || leaveYearDefault();
+  const { worker, budget, prev_remaining: prevRem, leaves } = await api(`/leave/worker/${id}?year=${year}`);
+  await loadHolidays([year, year + 1]);
+  const total = budget.entitlement + budget.carry; const used = leaves.length;
+  const ranges = leaveRanges(leaves);
+  const t = today(); const pastN = leaves.filter((l) => l.date <= t).length;
+  $app.innerHTML = `
+    <div class="topbar withart"><a class="back" href="#/szabadsag?y=${year}" aria-label="Vissza">${ICONS.back}</a><h2>${esc(worker.name)}</h2></div>${ICONS.flowerArt}
+    <div class="hero"><div class="top"><span>${year}. év · maradék szabadság</span><div class="big">${total - used}<span>nap</span></div></div>
+      <div class="pills"><span class="pill">keret ${total} nap</span><span class="pill">kivett ${pastN}</span>${used - pastN ? `<span class="pill">tervezett ${used - pastN}</span>` : ''}</div></div>
+    ${yearNav(year, `/szabadsag/${id}`)}
+    <a class="btn" href="#/szabadsag/uj?w=${id}&y=${year}" style="text-decoration:none;margin-top:14px">+ Szabadság rögzítése</a>
+    <form id="bf" class="yearcard"><span class="label">Éves keret (nap)</span>
+      <div class="row"><div style="flex:1;min-width:0"><label class="label" for="be">Alapkeret</label><input class="input" id="be" type="number" inputmode="numeric" min="0" max="366" value="${budget.entitlement}"></div>
+        <div style="flex:1;min-width:0"><label class="label" for="bc">Átvitt az előző évből</label><input class="input" id="bc" type="number" inputmode="numeric" min="-366" max="366" value="${budget.carry}"></div></div>
+      ${prevRem !== null && prevRem > 0 && !budget.carry ? `<button type="button" class="btn ghost small" id="carry" style="margin-top:8px">Átvitel az előző évből (${prevRem} nap)</button>` : ''}
+      <button class="btn small" type="submit" style="margin-top:10px">Keret mentése</button></form>
+    <div class="field"><span class="label">Kivett szabadságok</span>${ranges.length ? `<div class="entries">${ranges.map((r) => `<div class="entry"><div class="bal pos">${nap(r.days)}</div>
+      <div class="meta"><b>${rangeText(r)}</b><span>${r.note ? esc(r.note) : r.to > t ? 'tervezett' : 'kivett'}</span></div><button class="undo" data-delr="${r.ids.join(',')}">Törlés</button></div>`).join('')}</div>` : '<p class="tabs-note" style="margin:0">Ebben az évben még nincs rögzített szabadság.</p>'}</div>${nav('leave')}`;
+  const $ = (x) => document.getElementById(x);
+  $('bf').onsubmit = async (e) => {
+    e.preventDefault();
+    try { await api('/leave/budget', { method: 'PUT', body: { worker_id: id, year, entitlement: +$('be').value || 0, carry: +$('bc').value || 0 } }); toast('Keret mentve'); viewLeaveWorker(id, q); }
+    catch (err) { toast(err.message); }
+  };
+  const carry = $('carry'); if (carry) carry.onclick = () => { $('bc').value = prevRem; };
+  document.querySelectorAll('[data-delr]').forEach((b) => (b.onclick = async () => {
+    if (b.dataset.armed !== '1') { b.dataset.armed = '1'; b.textContent = 'Biztos?'; setTimeout(() => { b.dataset.armed = ''; b.textContent = 'Törlés'; }, 3000); return; }
+    try { await api('/leave/delete', { method: 'POST', body: { ids: b.dataset.delr.split(',').map(Number) } }); toast('Törölve'); viewLeaveWorker(id, q); } catch (err) { toast(err.message); }
+  }));
+}
+
+async function viewLeaveNew(q) {
+  const { workers } = await api('/workers');
+  const active = workers.filter(isAct);
+  if (!active.length) { $app.innerHTML = `<p class="empty">Előbb vegyél fel dolgozót a Beállításokban.</p>${nav('set')}`; return; }
+  const ty = new Date().getFullYear(); await loadHolidays([ty - 1, ty, ty + 1, ty + 2]);
+  const year0 = +q.get('y') || leaveYearDefault(); const t = today();
+  const start = String(year0) === t.slice(0, 4) ? t : `${year0}-01-01`;
+  const st = { w: active.some((w) => w.id === +q.get('w')) ? +q.get('w') : active[0].id, from: start, to: start, wait: false, cal: start.slice(0, 7), excl: new Set() };
+  const WD = ['v', 'h', 'k', 'sze', 'cs', 'p', 'szo'];
+  $app.innerHTML = `
+    <div class="topbar"><a class="back" href="#/szabadsag?y=${year0}" aria-label="Vissza">${ICONS.back}</a><h2>Szabadság rögzítése</h2></div>
+    <form id="f">
+    <div class="field"><label for="w">Dolgozó</label><select class="input" id="w">${active.map((w) => `<option value="${w.id}">${esc(w.name)}</option>`).join('')}</select></div>
+    <div class="field"><span class="label">Melyik napokra? (tól–ig)</span>
+      <div class="calhead" style="margin-top:0"><button type="button" class="back" data-cm="-1" aria-label="Előző hónap">${ICONS.back}</button><b id="cmt"></b>
+        <button type="button" class="back" data-cm="1" aria-label="Következő hónap" style="transform:scaleX(-1)">${ICONS.back}</button></div>
+      <div class="calgrid pick" id="cpick"></div>
+      <p class="tabs-note" id="dsum"></p>
+      <label class="check"><input type="checkbox" id="wk" checked><span>Hétvégék és munkaszüneti napok kihagyása</span></label>
+      <div class="quick chips" id="days" style="margin-top:0" hidden></div></div>
+    <div class="field"><label for="n">Megjegyzés (nem kötelező)</label><input class="input" id="n" maxlength="120" placeholder="Pl. téli szünet"></div>
+    <div class="preview"><span id="pl">Maradék</span><span id="pv"></span></div>
+    <div id="msg"></div></form><div class="savebar"><button class="btn" id="save" type="submit" form="f">Mentés</button></div>`;
+  const $ = (x) => document.getElementById(x);
+  $('w').value = st.w;
+  const ovCache = {};
+  const getOv = async (y) => (ovCache[y] ??= (await api(`/leave/overview?year=${y}`)).workers);
+  const rangeDays = () => {
+    if (!st.from || !st.to || st.from > st.to) return [];
+    const skip = $('wk').checked && st.from !== st.to; const out = []; const d = new Date(st.from + 'T12:00:00');
+    while (iso(d) <= st.to && out.length < 62) { if (!(skip && isOffDay(iso(d)))) out.push(iso(d)); d.setDate(d.getDate() + 1); }
+    return out;
+  };
+  const dates = () => rangeDays().filter((x) => !st.excl.has(x));
+  const renderDays = () => {
+    const ds = rangeDays(); $('days').hidden = ds.length < 2;
+    $('days').innerHTML = ds.length < 2 ? '' : '<span class="tabs-note" style="flex:1 1 100%;margin:0">Koppints egy napra, ha az kimarad:</span>' + ds.map((x) => { const d = new Date(x + 'T12:00:00'); return `<button type="button" data-day="${x}" aria-pressed="${!st.excl.has(x)}">${d.getMonth() + 1}. ${d.getDate()}. ${WD[d.getDay()]}</button>`; }).join('');
+    $('days').querySelectorAll('[data-day]').forEach((b) => (b.onclick = () => { st.excl.has(b.dataset.day) ? st.excl.delete(b.dataset.day) : st.excl.add(b.dataset.day); sync(); }));
+  };
+  const renderCal = () => {
+    const [y, mo] = st.cal.split('-').map(Number);
+    const first = new Date(y, mo - 1, 1, 12), count = new Date(y, mo, 0).getDate(), lead = (first.getDay() + 6) % 7;
+    $('cmt').textContent = new Intl.DateTimeFormat('hu-HU', { year: 'numeric', month: 'long' }).format(first);
+    const cells = [...WD.slice(1), WD[0]].map((x) => `<span>${x}</span>`);
+    for (let i = 0; i < lead; i++) cells.push('<div class="day empty"></div>');
+    const skipOn = $('wk').checked && st.from !== st.to;
+    for (let d = 1; d <= count; d++) {
+      const date = `${st.cal}-${pad(d)}`; const dow = new Date(y, mo - 1, d, 12).getDay(); const wkend = dow === 0 || dow === 6; const hol = HOL.get(date); const off = isOffDay(date);
+      const inRange = date >= st.from && date <= st.to; const edge = date === st.from || date === st.to; const skipped = inRange && ((skipOn && off) || st.excl.has(date));
+      cells.push(`<button type="button" class="day${date === t ? ' today' : ''}${edge && !skipped ? ' sel' : inRange ? ' inr' : ''}${skipped ? ' skip' : ''}${hol?.kind === 'off' ? ' hol' : hol?.kind === 'work' ? ' wrk' : wkend ? ' wkd' : ''}" data-cd="${date}"${hol ? ` title="${esc(hol.label)}"` : ''}>${d}</button>`);
+    }
+    $('cpick').innerHTML = cells.join('');
+    $('cpick').querySelectorAll('[data-cd]').forEach((b) => (b.onclick = () => {
+      const date = b.dataset.cd; st.excl.clear();
+      if (!st.wait) { st.from = date; st.to = date; st.wait = true; } else { if (date >= st.from) st.to = date; else { st.to = st.from; st.from = date; } st.wait = false; }
+      sync();
+    }));
+  };
+  const sync = async () => {
+    if (st.to < st.from) st.to = st.from;
+    renderCal(); renderDays();
+    const ds = dates(); const n = ds.length;
+    const span = st.from === st.to ? dotted(st.from) : `${dotted(st.from)} – ${dotted(st.to)}`;
+    $('dsum').innerHTML = st.wait ? `<b>${dotted(st.from)}</b> · koppints a záró napra, vagy maradjon egy nap.` : n ? `<b>${span}</b> · ${n} nap` : 'Nincs kijelölt nap.';
+    $('save').disabled = !n;
+    if (!n) { $('pv').textContent = ''; return; }
+    const y = Number(ds[0].slice(0, 4)); const ov = (await getOv(y)).find((x) => x.worker_id === +$('w').value);
+    const inYear = ds.filter((x) => x.startsWith(String(y))).length;
+    if (!ov || (!ov.entitlement && !ov.carry)) { $('pl').textContent = `${y}. évi keret`; $('pv').innerHTML = '<b>nincs megadva</b>'; return; }
+    const after = ov.remaining - inYear;
+    $('pl').textContent = `Maradék (${y})`; $('pv').innerHTML = `<span style="opacity:.6;text-decoration:line-through">${nap(ov.remaining)}</span> → <b style="${after < 0 ? 'color:var(--neg)' : ''}">${nap(after)}</b>${after < 0 ? ' · a keret nem fedezi' : ''}`;
+  };
+  $('w').onchange = sync; $('wk').onchange = () => { st.excl.clear(); sync(); };
+  document.querySelectorAll('[data-cm]').forEach((b) => (b.onclick = async () => { const [y, mo] = st.cal.split('-').map(Number); const d = new Date(y, mo - 1 + +b.dataset.cm, 1, 12); st.cal = `${d.getFullYear()}-${pad(d.getMonth() + 1)}`; try { await loadHolidays([d.getFullYear()]); } catch { /* nem baj */ } renderCal(); }));
+  sync();
+  $('f').onsubmit = async (e) => {
+    e.preventDefault(); $('save').disabled = true; $('msg').innerHTML = '';
+    const ds = dates();
+    try {
+      const r = await api('/leave', { method: 'POST', body: { worker_id: +$('w').value, dates: ds, note: $('n').value } });
+      toast(`Rögzítve: ${r.added} nap${r.skipped ? ` (${r.skipped} már szerepelt)` : ''}`);
+      location.hash = `#/szabadsag/${$('w').value}?y=${ds[0].slice(0, 4)}`;
+    } catch (err) { $('msg').innerHTML = `<div class="err">${esc(err.message)}</div>`; $('save').disabled = false; }
+  };
+}
+
+/* ----- szabadság-kimutatások (havi / éves, összesítő / dolgozónként, aláírás nélkül) ----- */
+
+async function viewLeaveReportForm() {
+  const { workers, groups } = await api('/workers');
+  const active = workers.filter(isAct);
+  const now = new Date(); const y0 = leaveYearDefault(); const st = { mode: 'sum', per: 'month' };
+  const useGroups = groups.filter((g) => active.some((w) => gidsOf(w).includes(g.id)));
+  const months = Array.from({ length: 12 }, (_, i) => new Intl.DateTimeFormat('hu-HU', { month: 'long' }).format(new Date(2000, i, 1)));
+  const selMonth = y0 === now.getFullYear() ? now.getMonth() : 0;
+  $app.innerHTML = `
+    <div class="topbar"><h2>Kimutatás</h2></div>
+    <div class="seg" style="margin-top:10px"><a class="segl" href="#/kimutatas">Túlóra</a><a class="segl on" href="#/kimutatas/szabadsag">Szabadság</a></div>
+    <form id="f">
+    <div class="field"><span class="label">Forma</span><div class="seg"><button type="button" data-mode="sum" aria-pressed="true">Összesítő (mindenki egyben)</button><button type="button" data-mode="each" aria-pressed="false">Dolgozónként</button></div></div>
+    <div class="field"><label for="w">Kiknek</label><select class="input" id="w"><option value="all">Mindenki (${active.length} dolgozó)</option>
+      ${useGroups.length ? `<optgroup label="Munkakör">${useGroups.map((g) => `<option value="g${g.id}">${esc(g.name)}</option>`).join('')}</optgroup>` : ''}
+      <optgroup label="Dolgozó">${active.map((w) => `<option value="${w.id}">${esc(w.name)}</option>`).join('')}</optgroup></select></div>
+    <div class="field"><span class="label">Időszak</span><div class="seg"><button type="button" data-per="month" aria-pressed="true">Havi</button><button type="button" data-per="year" aria-pressed="false">Éves</button></div></div>
+    <div class="field"><div class="row"><div style="flex:1;min-width:0"><label class="label" for="yr">Év</label><input class="input" id="yr" type="number" inputmode="numeric" min="2000" max="2100" value="${y0}"></div>
+      <div style="flex:1;min-width:0" id="mwrap"><label class="label" for="mo">Hónap</label><select class="input" id="mo">${months.map((m, i) => `<option value="${i + 1}"${i === selMonth ? ' selected' : ''}>${m}</option>`).join('')}</select></div></div></div>
+    <button class="btn" type="submit">Kimutatás megnyitása</button></form>
+    <p class="tabs-note">Ez a kimutatás aláírás nélküli, nyomtatható vagy PDF-be menthető.</p>${nav('rep')}`;
+  const $ = (x) => document.getElementById(x);
+  document.querySelectorAll('[data-mode]').forEach((b) => (b.onclick = () => { st.mode = b.dataset.mode; document.querySelectorAll('[data-mode]').forEach((x) => x.setAttribute('aria-pressed', x === b)); }));
+  document.querySelectorAll('[data-per]').forEach((b) => (b.onclick = () => { st.per = b.dataset.per; document.querySelectorAll('[data-per]').forEach((x) => x.setAttribute('aria-pressed', x === b)); $('mwrap').hidden = st.per === 'year'; }));
+  $('f').onsubmit = (e) => { e.preventDefault(); location.hash = `#/kimutatas/szabadsag/nyomtatas?mode=${st.mode}&year=${$('yr').value}${st.per === 'month' ? `&month=${$('mo').value}` : ''}&w=${$('w').value}`; };
+}
+
+async function viewLeaveReport(q) {
+  $app.innerHTML = '<p class="empty">Betöltés…</p>';
+  const year = +q.get('year'), month = +q.get('month') || null, mode = q.get('mode') || 'sum';
+  const [r] = await Promise.all([api(`/leave/report?year=${year}${month ? `&month=${month}` : ''}&worker=${encodeURIComponent(q.get('w') || 'all')}`), loadHolidays([year, year + 1])]);
+  const when = stamp(); const mname = (i) => new Intl.DateTimeFormat('hu-HU', { month: 'long' }).format(new Date(2000, i - 1, 1));
+  const period = month ? `${year}. ${mname(month)}` : `${year}. év`;
+  const head = `<div class="ph-head"><div class="org">${ICONS.flower.replace('<svg', '<svg width="38" height="38" style="color:#1E4D3B"')}
+    <div><b>Adonyi Hóvirág Óvoda</b><span>Szabadság nyilvántartás</span></div></div><div class="meta">Készült<br><b>${when}</b></div></div>`;
+  const MS = Array.from({ length: 12 }, (_, i) => mname(i + 1).slice(0, 3));
+  let body;
+  if (mode === 'sum') {
+    const cols = month
+      ? '<th class="r">Keret</th><th class="r">A hónapban</th><th class="r">Év eleje óta</th><th class="r">Maradék</th>'
+      : `<th class="r">Keret</th>${MS.map((m) => `<th class="r">${m}</th>`).join('')}<th class="r">Kivett</th><th class="r">Maradék</th>`;
+    const rows = r.rows.map((x) => `<tr><td>${esc(x.worker.name)}</td><td class="r">${x.total}</td>${month
+      ? `<td class="r">${x.used_period}</td><td class="r">${x.used_ytd}</td><td class="r"><b>${x.remaining}</b></td>`
+      : `${x.by_month.map((n) => `<td class="r">${n || '–'}</td>`).join('')}<td class="r">${x.used_ytd}</td><td class="r"><b>${x.remaining}</b></td>`}</tr>`).join('');
+    const sum = (k) => r.rows.reduce((a, x) => a + x[k], 0);
+    const foot = `<tr><td>Összesen</td><td class="r">${sum('total')}</td>${month ? `<td class="r">${sum('used_period')}</td><td class="r">${sum('used_ytd')}</td>` : `${MS.map((_, i) => `<td class="r">${r.rows.reduce((a, x) => a + x.by_month[i], 0) || '–'}</td>`).join('')}<td class="r">${sum('used_ytd')}</td>`}<td class="r">${sum('remaining')}</td></tr>`;
+    body = `<section class="sheet">${head}<h3>Szabadság-kimutatás</h3>
+      <div class="facts"><div><small>Időszak</small><b>${period}</b></div><div><small>Kiknek</small><b>${esc(r.scope.name)}</b></div></div>
+      <p class="unit">Az értékek napokban szerepelnek. A keret az alapkeretet és az átvitt napokat tartalmazza.</p>
+      <div class="tw"><table class="sum leave"><thead><tr><th>Dolgozó</th>${cols}</tr></thead><tbody>${rows || '<tr><td colspan="6" class="none">Nincs dolgozó.</td></tr>'}</tbody><tfoot>${foot}</tfoot></table></div>
+      <div class="foot"><span>Maradék: keret mínusz a ${month ? 'hónap végéig' : 'évben'} kivett napok.</span><span></span></div></section>`;
+  } else {
+    body = r.rows.map((x) => {
+      const list = x.dates.map((d, i) => ({ id: i, date: d })); const ranges = leaveRanges(list);
+      const trs = ranges.map((g) => `<tr><td>${rangeText(g)}</td><td class="r">${g.days}</td></tr>`).join('');
+      const monthly = month ? '' : `<div class="tw"><table class="sum leave" style="margin-top:12px"><thead><tr>${MS.map((m) => `<th class="r">${m}</th>`).join('')}</tr></thead><tbody><tr>${x.by_month.map((n) => `<td class="r">${n || '–'}</td>`).join('')}</tr></tbody></table></div>`;
+      return `<section class="sheet">${head}<h3>Szabadság-kimutatás</h3>
+        <div class="facts"><div><small>Dolgozó</small><b>${esc(x.worker.name)}</b></div><div><small>Időszak</small><b>${period}</b></div>
+          <div><small>Éves keret</small><b>${x.entitlement}${x.carry ? ` + ${x.carry} átvitt` : ''} = ${x.total} nap</b></div><div><small>Maradék${month ? ' (hónap végén)' : ''}</small><b>${x.remaining} nap</b></div></div>
+        <table><thead><tr><th>Időszak</th><th class="r">Napok</th></tr></thead><tbody>${trs || '<tr><td colspan="2" class="none">Az időszakban nem volt szabadság.</td></tr>'}</tbody></table>
+        ${monthly}
+        <div class="total"><span>${month ? 'Kivett a hónapban' : 'Kivett az évben'}</span><b>${x.used_period} nap</b></div>
+        ${month ? `<p class="unit" style="margin-top:8px">Év eleje óta összesen: ${x.used_ytd} nap${x.planned_after ? ` · a hónap után tervezett: ${x.planned_after} nap` : ''}.</p>` : ''}
+        <div class="foot"><span>Az értékek napokban szerepelnek.</span><span></span></div></section>`;
+    }).join('') || '<p class="empty">Nincs dolgozó a kimutatáshoz.</p>';
+  }
+  $app.innerHTML = `<div class="noprint"><div class="topbar"><a class="back" href="#/kimutatas/szabadsag" aria-label="Vissza">${ICONS.back}</a><h2>${esc(r.scope.name)} · ${period}</h2></div>
+    <button class="btn" id="print" type="button" style="margin-bottom:16px">Nyomtatás / PDF mentése</button></div>${body}`;
+  document.getElementById('print').onclick = () => window.print();
+}
+
 /* ---------- útvonalak ---------- */
 
 async function route() {
@@ -1063,8 +1320,13 @@ async function route() {
   const q = new URLSearchParams(query);
   try {
     if (path === '/belepes') return viewLogin();
-    $app.classList.toggle('wide', path.startsWith('/kimutatas/'));
+    $app.classList.toggle('wide', path.startsWith('/kimutatas/') && path !== '/kimutatas/szabadsag');
     if (path === '/uj') return await viewNew(q.get('w'));
+    if (path === '/szabadsag') return await viewLeave(q);
+    if (path === '/szabadsag/uj') return await viewLeaveNew(q);
+    const lm = path.match(/^\/szabadsag\/(\d+)$/); if (lm) return await viewLeaveWorker(lm[1], q);
+    if (path === '/kimutatas/szabadsag') return await viewLeaveReportForm();
+    if (path === '/kimutatas/szabadsag/nyomtatas') return await viewLeaveReport(q);
     if (path === '/kimutatas') return await viewReportForm(q);
     if (path === '/kimutatas/nyomtatas') return await viewReportPrint(q);
     if (path === '/kimutatas/osszesito') return await viewReportSummary(q);

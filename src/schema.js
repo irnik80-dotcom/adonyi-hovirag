@@ -85,6 +85,23 @@ export const SCHEMA = [
     note TEXT NOT NULL DEFAULT '',
     target TEXT NOT NULL DEFAULT ''
   )`,
+  // Szabadságok (napokban): a szabadidőtől (túlóra) teljesen külön nyilvántartás
+  `CREATE TABLE IF NOT EXISTS leaves (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    worker_id INTEGER NOT NULL REFERENCES workers(id),
+    date TEXT NOT NULL,
+    note TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (worker_id, date)
+  )`,
+  `CREATE INDEX IF NOT EXISTS leaves_date ON leaves(date)`,
+  `CREATE TABLE IF NOT EXISTS leave_budget (
+    worker_id INTEGER NOT NULL REFERENCES workers(id),
+    year INTEGER NOT NULL,
+    entitlement INTEGER NOT NULL DEFAULT 0,
+    carry INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (worker_id, year)
+  )`,
 ];
 
 export const GROUPS_TABLE = `CREATE TABLE IF NOT EXISTS staff_groups (
