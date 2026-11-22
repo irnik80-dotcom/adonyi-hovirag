@@ -118,6 +118,24 @@ function upcomingNameDays(workers, todayStr, days) {
   return out.sort((a, b) => a.in_days - b.in_days || a.name.localeCompare(b.name, 'hu'));
 }
 
+// ---------- munkaszüneti napok ----------
+// Húsvétvasárnap (gergely-naptár, Meeus/Jones/Butcher)
+function easterSunday(y) {
+  const a = y % 19, b = Math.floor(y / 100), c = y % 100, d = Math.floor(b / 4), e = b % 4, f = Math.floor((b + 8) / 25), g = Math.floor((b - f + 1) / 3);
+  const h = (19 * a + b - d - g + 15) % 30, i = Math.floor(c / 4), k = c % 4, l = (32 + 2 * e + 2 * i - h - k) % 7, m = Math.floor((a + 11 * h + 22 * l) / 451);
+  const month = Math.floor((h + l - 7 * m + 114) / 31), day = ((h + l - 7 * m + 114) % 31) + 1;
+  return new Date(Date.UTC(y, month - 1, day));
+}
+const addDays = (d, n) => new Date(d.getTime() + n * 864e5).toISOString().slice(0, 10);
+// Törvényi munkaszüneti napok. Az áthelyezett pihenő- és munkanapokat (évente rendelet) kézzel lehet megadni.
+function holidaysOf(y) {
+  const e = easterSunday(y);
+  return [[`${y}-01-01`, 'Újév'], [`${y}-03-15`, 'Nemzeti ünnep (március 15.)'], [addDays(e, -2), 'Nagypéntek'], [addDays(e, 0), 'Húsvétvasárnap'], [addDays(e, 1), 'Húsvéthétfő'],
+    [`${y}-05-01`, 'A munka ünnepe'], [addDays(e, 49), 'Pünkösdvasárnap'], [addDays(e, 50), 'Pünkösdhétfő'], [`${y}-08-20`, 'Államalapítás ünnepe'],
+    [`${y}-10-23`, 'Nemzeti ünnep (október 23.)'], [`${y}-11-01`, 'Mindenszentek'], [`${y}-12-25`, 'Karácsony'], [`${y}-12-26`, 'Karácsony másnapja']]
+    .map(([date, label]) => ({ date, label, kind: 'off', custom: false }));
+}
+
 // ---------- Web Push (VAPID, tartalom nélküli értesítés) ----------
 const b64u = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 async function vapidKeys(env) {
@@ -683,6 +701,49 @@ export default {
         return json(r);
       }
 
+      if (path === '/api/holidays' && method === 'GET') {
+        const years = [...new Set((url.searchParams.get('years') || today.slice(0, 4)).split(',').map(Number).filter((y) => y >= 2000 && y <= 2100))].slice(0, 6);
+        const special = (await env.DB.prepare('SELECT date, kind, label FROM special_days ORDER BY date').all()).results;
+        const map = new Map(years.flatMap((y) => holidaysOf(y)).map((h) => [h.date, h]));
+        for (const s of special) if (years.includes(Number(s.date.slice(0, 4)))) map.set(s.date, { date: s.date, label: s.label, kind: s.kind, custom: true });
+        return json({ days: [...map.values()].sort((a, b) => a.date.localeCompare(b.date)) });
+      }
+      if (path === '/api/holidays' && method === 'POST') {
+        const b = await request.json();
+        if (!isDate(b.date)) return fail(400, 'Hibás dátum.');
+        if (!['off', 'work'].includes(b.kind)) return fail(400, 'Hibás típus.');
+        await env.DB.prepare('INSERT INTO special_days (date, kind, label) VALUES (?, ?, ?) ON CONFLICT(date) DO UPDATE SET kind = excluded.kind, label = excluded.label')
+          .bind(b.date, b.kind, cleanText(b.label, 60)).run();
+        await audit(env, 'holiday.set', { date: b.date, kind: b.kind });
+        return json({ ok: true });
+      }
+      m = path.match(/^\/api\/holidays\/(\d{4}-\d{2}-\d{2})$/);
+      if (m && method === 'DELETE') {
+        await env.DB.prepare('DELETE FROM special_days WHERE date = ?').bind(m[1]).run();
+        await audit(env, 'holiday.delete', { date: m[1] });
+        return json({ ok: true });
+      }
+
+      if (path === '/api/presets' && method === 'GET') {
+        return json({ presets: (await env.DB.prepare('SELECT id, name, kind, minutes, note, target FROM entry_presets ORDER BY name COLLATE NOCASE').all()).results });
+      }
+      if (path === '/api/presets' && method === 'POST') {
+        const b = await request.json();
+        const name = cleanText(b.name, 40), minutes = Math.trunc(Number(b.minutes));
+        if (!name) return fail(400, 'Adj nevet a sablonnak.');
+        if (!['credit', 'use'].includes(b.kind)) return fail(400, 'Hibás típus.');
+        if (!Number.isInteger(minutes) || minutes <= 0 || minutes > 60 * 24) return fail(400, 'Adj meg 0-nál nagyobb időtartamot.');
+        const target = /^(all|g\d+)$/.test(b.target || '') ? b.target : '';
+        const row = await env.DB.prepare('INSERT INTO entry_presets (name, kind, minutes, note, target) VALUES (?, ?, ?, ?, ?) RETURNING id')
+          .bind(name, b.kind, minutes, cleanText(b.note, 300), target).first();
+        return json({ id: row.id }, 201);
+      }
+      m = path.match(/^\/api\/presets\/(\d+)$/);
+      if (m && method === 'DELETE') {
+        await env.DB.prepare('DELETE FROM entry_presets WHERE id = ?').bind(Number(m[1])).run();
+        return json({ ok: true });
+      }
+
       if (path === '/api/backup' && method === 'GET') {
         const workers = (await env.DB.prepare('SELECT * FROM workers ORDER BY id').all()).results;
         const entries = (await env.DB.prepare('SELECT * FROM entries ORDER BY id').all()).results;
@@ -699,10 +760,12 @@ export default {
         const audit_ = (await env.DB.prepare('SELECT * FROM audit ORDER BY id').all()).results;
         const signatures = (await env.DB.prepare('SELECT * FROM signatures ORDER BY id').all()).results;
         const templates = (await env.DB.prepare('SELECT * FROM note_templates ORDER BY id').all()).results;
+        const specialDays = (await env.DB.prepare('SELECT * FROM special_days').all()).results;
+        const presets = (await env.DB.prepare('SELECT * FROM entry_presets').all()).results;
         const groups = await getGroups(env);
         const parked = (await env.DB.prepare('SELECT * FROM worker_park').all()).results;
         const members = (await env.DB.prepare('SELECT * FROM staff_group_members').all()).results;
-        return new Response(JSON.stringify({ exported: new Date().toISOString(), workers, entries, signatures, templates, groups, members, parked, audit: audit_ }, null, 1), { headers: {
+        return new Response(JSON.stringify({ exported: new Date().toISOString(), workers, entries, signatures, templates, groups, members, parked, specialDays, presets, audit: audit_ }, null, 1), { headers: {
           'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store',
           'content-disposition': `attachment; filename="hovirag-mentes-${today}.json"` } });
       }

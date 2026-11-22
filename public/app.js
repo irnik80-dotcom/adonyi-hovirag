@@ -24,6 +24,17 @@ const initials = (n) => n.split(/\s+/).filter(Boolean).slice(0, 2).map((p) => p[
 const isAct = (w) => w.active === 1;
 // A nyitó egyenleg alapértelmezett dátuma: induláskor (2026. 12. 21-ig) a nevelési év kezdete, utána a mai nap.
 const OPENING_START = '2026-09-01', OPENING_CUTOFF = '2026-12-21';
+// Munkaszüneti napok (törvényi + kézzel megadott), évenként betöltve és gyorsítótárazva
+const HOL = new Map(); const holYears = new Set();
+async function loadHolidays(years) {
+  const need = [...new Set(years)].filter((y) => !holYears.has(y));
+  if (!need.length) return;
+  const { days } = await api(`/holidays?years=${need.join(',')}`);
+  days.forEach((d) => HOL.set(d.date, d)); need.forEach((y) => holYears.add(y));
+}
+const resetHolidays = () => { HOL.clear(); holYears.clear(); };
+// Pihenőnap-e: törvényi/megadott nap, különben a hétvége; a ledolgozandó munkanap (work) hétvégén is munkanap
+const isOffDay = (date) => { const h = HOL.get(date); if (h) return h.kind === 'off'; const dow = new Date(date + 'T12:00:00').getDay(); return dow === 0 || dow === 6; };
 const gidsOf = (w) => (w.group_ids ? String(w.group_ids).split(',').map(Number) : []);
 const bigTime = (m) => `${m < 0 ? '−' : ''}${Math.floor(Math.abs(m) / 60)}<span>ó</span>${pad(Math.abs(m) % 60)}<span>p</span>`;
 
@@ -260,7 +271,8 @@ async function viewList() {
 /* ---------- új tétel ---------- */
 
 async function viewNew(preselect) {
-  const [{ workers, today: srvToday, groups }, { templates }] = await Promise.all([api('/workers'), api('/templates')]);
+  const [{ workers, today: srvToday, groups }, { templates }, { presets }] = await Promise.all([api('/workers'), api('/templates'), api('/presets')]);
+  const ty = Number(today().slice(0, 4)); await loadHolidays([ty - 1, ty, ty + 1]);
   const active = workers.filter(isAct);
   if (!active.length) { $app.innerHTML = `<p class="empty">Előbb vegyél fel dolgozót a Beállításokban.</p>${nav('set')}`; return; }
   const st = { kind: 'credit', h: 0, m: 30, mode: 'dur', t1: '16:00', t2: '18:00', from: srvToday, to: srvToday, wait: false, cal: srvToday.slice(0, 7), excl: new Set(), multi: false, w: preselect && active.some((w) => w.id === +preselect) ? +preselect : active[0].id, picked: new Set() };
@@ -273,6 +285,7 @@ async function viewNew(preselect) {
       <div class="quick chips" id="gch" style="margin:0 0 8px">${groups.filter((g) => active.some((w) => gidsOf(w).includes(g.id))).map((g) => `<button type="button" data-gp="${g.id}">${esc(g.name)} (${active.filter((w) => gidsOf(w).includes(g.id)).length})</button>`).join('')}<button type="button" data-gp="all">Mindenki</button><button type="button" data-gp="none">Törlés</button></div>
       <div class="checks">${active.map((w) => `<label class="check"><input type="checkbox" value="${w.id}"><span>${esc(w.name)}</span></label>`).join('')}</div></div>
       <label class="check multi"><input type="checkbox" id="multi"><span>Több dolgozónak egyszerre</span></label></div>
+    <div class="field" id="prewrap"><span class="label">Gyors tételek</span><div class="quick chips" id="pre" style="margin-top:0"></div></div>
     <div class="field"><span class="label">Mi történt?</span><div class="seg">
       <button type="button" data-kind="credit" aria-pressed="true">+ Túlóra jóváírása</button>
       <button type="button" data-kind="use" aria-pressed="false">− Szabadidő kivétele</button></div></div>
@@ -292,13 +305,14 @@ async function viewNew(preselect) {
         <button type="button" class="back" data-cm="1" aria-label="Következő hónap" style="transform:scaleX(-1)">${ICONS.back}</button></div>
       <div class="calgrid pick" id="cpick"></div>
       <p class="tabs-note" id="dsum"></p>
-      <label class="check"><input type="checkbox" id="wk" checked><span>Hétvégék kihagyása</span></label>
+      <label class="check"><input type="checkbox" id="wk" checked><span>Hétvégék és munkaszüneti napok kihagyása</span></label>
       <div class="quick chips" id="days" style="margin-top:0" hidden></div>
       <p class="tabs-note" id="dnote" hidden></p></div>
     <div class="field"><label for="n">Megjegyzés</label>
       ${templates.length ? `<div class="quick" id="tpl" style="margin:0 0 8px">${templates.map((t) => `<button type="button" data-t="${esc(t.text)}">${esc(t.text)}</button>`).join('')}</div>` : ''}
       <textarea class="input" id="n" maxlength="300" placeholder="Pl. szülői értekezlet, rendezvény…"></textarea></div>
     <div class="preview"><span id="pl">Új egyenleg</span><span id="pv"></span></div>
+    <button type="button" class="btn ghost small" id="savepre" style="margin-top:10px">Mentés gyors tételként</button><div id="prepanel"></div>
     <div id="msg"></div>
     </form><div class="savebar"><button class="btn" id="save" type="submit" form="f">Mentés</button></div>`;
   const $ = (id) => document.getElementById(id);
@@ -313,7 +327,7 @@ async function viewNew(preselect) {
     if (!st.from || !st.to || st.from > st.to) return [];
     const skip = $('wk').checked && st.from !== st.to;
     const out = []; const d = new Date(st.from + 'T12:00:00');
-    while (iso(d) <= st.to && out.length < 62) { const dow = d.getDay(); if (!(skip && (dow === 0 || dow === 6))) out.push(iso(d)); d.setDate(d.getDate() + 1); }
+    while (iso(d) <= st.to && out.length < 62) { if (!(skip && isOffDay(iso(d)))) out.push(iso(d)); d.setDate(d.getDate() + 1); }
     return out;
   };
   const dates = () => rangeDays().filter((x) => !st.excl.has(x));
@@ -333,10 +347,10 @@ async function viewNew(preselect) {
     for (let i = 0; i < lead; i++) cells.push('<div class="day empty"></div>');
     const skipOn = $('wk').checked && st.from !== st.to;
     for (let d = 1; d <= count; d++) {
-      const date = `${st.cal}-${pad(d)}`; const dow = new Date(y, mo - 1, d, 12).getDay(); const wkend = dow === 0 || dow === 6;
+      const date = `${st.cal}-${pad(d)}`; const dow = new Date(y, mo - 1, d, 12).getDay(); const wkend = dow === 0 || dow === 6; const hol = HOL.get(date); const off = isOffDay(date);
       const inRange = date >= st.from && date <= st.to; const edge = date === st.from || date === st.to;
-      const skipped = inRange && ((skipOn && wkend) || st.excl.has(date));
-      cells.push(`<button type="button" class="day${date === srvToday ? ' today' : ''}${edge && !skipped ? ' sel' : inRange ? ' inr' : ''}${skipped ? ' skip' : ''}${wkend ? ' wkd' : ''}" data-cd="${date}"${date > cap ? ' disabled' : ''}>${d}</button>`);
+      const skipped = inRange && ((skipOn && off) || st.excl.has(date));
+      cells.push(`<button type="button" class="day${date === srvToday ? ' today' : ''}${edge && !skipped ? ' sel' : inRange ? ' inr' : ''}${skipped ? ' skip' : ''}${hol?.kind === 'off' ? ' hol' : wkend && hol?.kind !== 'work' ? ' wkd' : hol?.kind === 'work' ? ' wrk' : ''}" data-cd="${date}"${hol ? ` title="${esc(hol.label)}"` : ''}${date > cap ? ' disabled' : ''}>${d}</button>`);
     }
     $('cpick').innerHTML = cells.join('');
     $('cpick').querySelectorAll('[data-cd]').forEach((b) => (b.onclick = () => {
@@ -381,7 +395,7 @@ async function viewNew(preselect) {
   $('m').oninput = () => { setMin(st.h * 60 + Math.max(0, Math.floor(+$('m').value) || 0)); sync(); };
   $('w').onchange = sync; $('t1').oninput = sync; $('t2').oninput = sync;
   $('wk').onchange = () => { st.excl.clear(); sync(); };
-  document.querySelectorAll('[data-cm]').forEach((b) => (b.onclick = () => { const [y, mo] = st.cal.split('-').map(Number); const d = new Date(y, mo - 1 + +b.dataset.cm, 1, 12); st.cal = `${d.getFullYear()}-${pad(d.getMonth() + 1)}`; renderCal(); }));
+  document.querySelectorAll('[data-cm]').forEach((b) => (b.onclick = async () => { const [y, mo] = st.cal.split('-').map(Number); const d = new Date(y, mo - 1 + +b.dataset.cm, 1, 12); st.cal = `${d.getFullYear()}-${pad(d.getMonth() + 1)}`; try { await loadHolidays([d.getFullYear()]); } catch { /* nem baj */ } renderCal(); }));
   document.querySelectorAll('[data-mode]').forEach((b) => (b.onclick = () => { st.mode = b.dataset.mode; sync(); }));
   $('multi').onchange = () => {
     st.multi = $('multi').checked; $('many').hidden = !st.multi; $('w').hidden = st.multi;
@@ -408,6 +422,34 @@ async function viewNew(preselect) {
     if (f === 'h') st.h = Math.max(0, st.h + d); else setMin(minutes() + d);
     sync();
   }));
+  const drawPresets = () => {
+    $('prewrap').hidden = !presets.length;
+    $('pre').innerHTML = presets.map((x) => `<button type="button" data-pr="${x.id}">${esc(x.name)} · ${x.kind === 'use' ? '−' : '+'}${hmm(x.minutes)}</button>`).join('');
+    $('pre').querySelectorAll('[data-pr]').forEach((b) => (b.onclick = () => applyPreset(presets.find((x) => x.id === +b.dataset.pr))));
+  };
+  const applyPreset = (x) => {
+    st.kind = x.kind; st.mode = 'dur'; setMin(x.minutes); $('n').value = x.note || '';
+    if (x.target) {
+      const members = x.target === 'all' ? active : active.filter((w) => gidsOf(w).includes(+x.target.slice(1)));
+      if (members.length) { if (!st.multi) { $('multi').checked = true; $('multi').onchange(); } st.picked.clear(); members.forEach((w) => st.picked.add(w.id)); syncChecks(); }
+    }
+    st.excl.clear(); sync(); toast(`Betöltve: ${x.name}. Most válaszd ki a napot!`);
+  };
+  $('savepre').onclick = () => {
+    if (minutes() <= 0) { toast('Előbb add meg az időtartamot.'); return; }
+    $('prepanel').innerHTML = `<div class="bulk" style="margin-top:10px"><label class="label" for="pn1">Sablon neve</label><input class="input" id="pn1" maxlength="40" value="${esc($('n').value.trim().slice(0, 40))}" placeholder="Pl. Szülői értekezlet">
+      <label class="label" for="pt1" style="margin-top:10px">Kinek</label><select class="input" id="pt1"><option value="">Nincs megadva (a dolgozót magad választod)</option><option value="all">Mindenki</option>${groups.map((g) => `<option value="g${g.id}">${esc(g.name)}</option>`).join('')}</select>
+      <div class="row" style="margin-top:10px"><button class="btn small" type="button" id="pgo">Mentés</button><button class="btn ghost small" type="button" id="pno">Mégsem</button></div></div>`;
+    $('pno').onclick = () => { $('prepanel').innerHTML = ''; };
+    $('pgo').onclick = async () => {
+      try {
+        const body = { name: $('pn1').value, kind: st.kind, minutes: minutes(), note: $('n').value, target: $('pt1').value };
+        const { id } = await api('/presets', { method: 'POST', body });
+        presets.push({ id, ...body }); drawPresets(); $('prepanel').innerHTML = ''; toast('Gyors tétel elmentve');
+      } catch (err) { toast(err.message); }
+    };
+  };
+  drawPresets();
   sync();
   const submit = async (confirm) => {
     const ids = targets();
@@ -566,7 +608,8 @@ async function viewWorker(id) {
 /* ---------- beállítások ---------- */
 
 async function viewSettings() {
-  const [{ workers, groups, warn_high_min: warnHigh }, { templates }] = await Promise.all([api('/workers'), api('/templates')]);
+  const hy = Number(today().slice(0, 4));
+  const [{ workers, groups, warn_high_min: warnHigh }, { templates }, { presets: presetsList }, { days: holDays }] = await Promise.all([api('/workers'), api('/templates'), api('/presets'), api(`/holidays?years=${hy},${hy + 1}`)]);
   const newGroups = new Set();
   $app.innerHTML = `
     <div class="topbar"><h2>Beállítások</h2></div>
@@ -603,6 +646,13 @@ async function viewSettings() {
     <div class="field"><span class="label">Figyelmeztetés magas egyenlegre</span>
       <form id="wf" class="row"><input class="input" id="wh" type="number" inputmode="numeric" min="0" max="1000" value="${Math.round(warnHigh / 60)}" aria-label="Óra"><button class="btn small" type="submit">Mentés</button></form>
       <p class="tabs-note">Ennyi óra felett az Áttekintésen figyelmeztetést látsz. 0 = kikapcsolva.</p></div>
+    <div class="field"><span class="label">Gyors tételek</span>
+      ${presetsList.length ? presetsList.map((x) => `<div class="set-item"><span>${esc(x.name)} · ${x.kind === 'use' ? '−' : '+'}${hmm(x.minutes)}${x.target === 'all' ? ' · mindenki' : x.target ? ` · ${esc(groups.find((g) => 'g' + g.id === x.target)?.name || 'munkakör')}` : ''}</span><button class="btn ghost small" data-delpre="${x.id}">Törlés</button></div>`).join('') : '<p class="tabs-note" style="margin:0">Még nincs. Az Új tétel oldalon a „Mentés gyors tételként” gombbal hozhatsz létre.</p>'}</div>
+    <details class="field bulkimp"><summary class="label" style="cursor:pointer">Munkaszüneti napok és áthelyezett munkanapok</summary>
+      <p class="tabs-note" style="margin:6px 0 8px">A törvényi ünnepnapok (húsvét, pünkösd is) magától benne vannak a naptárban. Az áthelyezett pihenő- és munkanapokat, valamint az egyéb szabadnapokat (például december 24.) évente rendelet állapítja meg, ezeket itt adhatod meg.</p>
+      <form id="hf"><div class="row"><input class="input" id="hd" type="date" required aria-label="Dátum"><select class="input" id="hk" aria-label="Típus"><option value="off">Szabadnap</option><option value="work">Ledolgozandó munkanap</option></select></div>
+        <input class="input" id="hl" maxlength="60" placeholder="Megnevezés (pl. áthelyezett pihenőnap)" style="margin-top:8px"><button class="btn small" type="submit" style="margin-top:8px">Hozzáadás</button></form>
+      <div id="hlist" style="margin-top:10px"></div></details>
     <div class="field"><span class="label">Gyakori megjegyzések</span>
       ${templates.map((t) => `<div class="set-item"><span>${esc(t.text)}</span><button class="btn ghost small" data-deltpl="${t.id}" aria-label="Törlés: ${esc(t.text)}">Törlés</button></div>`).join('')}
       <form id="tf" class="row" style="margin-top:8px"><input class="input" id="tt" maxlength="60" placeholder="Új gyors megjegyzés" required><button class="btn small" type="submit">Hozzáad</button></form></div>
@@ -740,6 +790,10 @@ async function viewSettings() {
     catch (err) { toast(err.message); }
   };
   $('ptest').onclick = async () => { try { const r = await api('/push/test', { method: 'POST', body: {} }); toast(r.sent ? `Elküldve (${r.sent} eszköz)` : 'Nem sikerült elküldeni.'); } catch (err) { toast(err.message); } };
+  document.querySelectorAll('[data-delpre]').forEach((b) => (b.onclick = async () => { await api(`/presets/${b.dataset.delpre}`, { method: 'DELETE' }); viewSettings(); }));
+  $('hlist').innerHTML = holDays.map((h) => `<div class="set-item"><span>${dotted(h.date)} · ${esc(h.label || (h.kind === 'work' ? 'Munkanap' : 'Szabadnap'))}${h.kind === 'work' ? ' <em class="status ok">ledolgozandó munkanap</em>' : ''}</span>${h.custom ? `<button class="btn ghost small" data-delhol="${h.date}">Törlés</button>` : ''}</div>`).join('');
+  document.querySelectorAll('[data-delhol]').forEach((b) => (b.onclick = async () => { await api(`/holidays/${b.dataset.delhol}`, { method: 'DELETE' }); resetHolidays(); toast('Törölve'); viewSettings(); }));
+  $('hf').onsubmit = async (e) => { e.preventDefault(); try { await api('/holidays', { method: 'POST', body: { date: $('hd').value, kind: $('hk').value, label: $('hl').value } }); resetHolidays(); toast('Hozzáadva'); viewSettings(); } catch (err) { toast(err.message); } };
   api('/version').then((v) => {
     $('ver').textContent = v.id ? `${v.id}${v.timestamp ? ' · telepítve: ' + new Intl.DateTimeFormat('hu-HU', { timeZone: 'Europe/Budapest', dateStyle: 'medium', timeStyle: 'short' }).format(new Date(v.timestamp)) : ''}` : 'Nem elérhető (helyi futtatás).';
   }).catch(() => { $('ver').textContent = 'Nem elérhető.'; });
@@ -911,8 +965,8 @@ async function viewReportSummary(q) {
 async function viewCalendar(q) {
   const now = new Date();
   let month = q.get('m') || `${now.getFullYear()}-${pad(now.getMonth() + 1)}`;
-  const { entries, today: srvToday } = await api(`/calendar?month=${month}`);
   const [y, mo] = month.split('-').map(Number);
+  const [{ entries, today: srvToday }] = await Promise.all([api(`/calendar?month=${month}`), loadHolidays([y])]);
   const first = new Date(y, mo - 1, 1, 12);
   const days = new Date(y, mo, 0).getDate();
   const lead = (first.getDay() + 6) % 7;
@@ -924,20 +978,24 @@ async function viewCalendar(q) {
   const cells = [...Array(lead).fill('<div class="day empty"></div>')];
   for (let d = 1; d <= days; d++) {
     const date = `${month}-${pad(d)}`; const n = (byDay[date] || []).length;
-    cells.push(`<button type="button" class="day ${date === srvToday ? 'today' : ''} ${date > srvToday ? 'future' : ''}" data-day="${date}"><span>${d}</span>${n ? `<i>${n}</i>` : ''}</button>`);
+    const h = HOL.get(date); const dow = new Date(y, mo - 1, d, 12).getDay(); const wkend = dow === 0 || dow === 6;
+    const kind = h ? (h.kind === 'off' ? ' hol' : ' wrk') : wkend ? ' wkd' : '';
+    cells.push(`<button type="button" class="day ${date === srvToday ? 'today' : ''} ${date > srvToday ? 'future' : ''}${kind}" data-day="${date}"${h ? ` title="${esc(h.label)}"` : ''}><span>${d}</span>${n ? `<i>${n}</i>` : ''}</button>`);
   }
   $app.innerHTML = `
     <div class="topbar"><h2>Naptár</h2></div>
     <div class="calhead"><a class="back" href="#/naptar?m=${key(prev)}" aria-label="Előző hónap">${ICONS.back}</a><b>${title}</b>
       <a class="back" href="#/naptar?m=${key(next)}" aria-label="Következő hónap" style="transform:scaleX(-1)">${ICONS.back}</a></div>
     <div class="calgrid"><span>H</span><span>K</span><span>Sze</span><span>Cs</span><span>P</span><span>Szo</span><span>V</span>${cells.join('')}</div>
-    <p class="tabs-note">A számok azt mutatják, hányan vesznek ki szabadidőt aznap. Koppints egy napra a részletekért.</p>
+    <p class="tabs-note">A számok azt mutatják, hányan vesznek ki szabadidőt aznap. <b style="color:var(--neg)">Piros szám</b>: munkaszüneti nap, keretes: ledolgozandó munkanap. Az áthelyezett napokat a Beállításokban adhatod meg.</p>
     <div id="dd" class="upcoming" hidden></div>${nav('cal')}`;
   const show = (date) => {
     document.querySelectorAll('.day[data-day]').forEach((c) => { const on = c.dataset.day === date; c.classList.toggle('sel', on); c.setAttribute('aria-pressed', on); });
     const list = byDay[date] || [];
     const box = document.getElementById('dd'); box.hidden = false;
-    box.innerHTML = `<span class="label">${fullDate(date)}</span>${list.length ? list.map((e) => `<a href="#/dolgozo/${e.worker_id}"><b>${fmt(-e.minutes)}</b><span>${esc(e.name)}${e.note ? ` · ${esc(e.note)}` : ''}</span><em></em></a>`).join('') : '<p class="tabs-note" style="margin:0">Ezen a napon senki nem vesz ki szabadidőt.</p>'}`;
+    const h = HOL.get(date); const dow = new Date(date + 'T12:00:00').getDay();
+    const dayNote = h ? `<p class="holnote"><b>${esc(h.label || (h.kind === 'off' ? 'Szabadnap' : 'Munkanap'))}</b>${h.kind === 'work' ? ' · ledolgozandó munkanap' : ' · munkaszüneti nap'}</p>` : dow === 0 || dow === 6 ? '<p class="holnote">Hétvége</p>' : '';
+    box.innerHTML = `<span class="label">${fullDate(date)}</span>${dayNote}${list.length ? list.map((e) => `<a href="#/dolgozo/${e.worker_id}"><b>${fmt(-e.minutes)}</b><span>${esc(e.name)}${e.note ? ` · ${esc(e.note)}` : ''}</span><em></em></a>`).join('') : '<p class="tabs-note" style="margin:0">Ezen a napon senki nem vesz ki szabadidőt.</p>'}`;
   };
   document.querySelectorAll('[data-day]').forEach((b) => (b.onclick = () => show(b.dataset.day)));
   if (byDay[srvToday]) show(srvToday);
@@ -954,6 +1012,8 @@ async function viewAudit() {
     switch (r.action) {
       case 'worker.create': return `Dolgozó felvéve: ${d.name ? esc(d.name) : `törölt dolgozó (#${d.id})`}${d.opening ? ` (nyitó: ${fmt(d.opening)})` : ''}`;
       case 'migration.opening': return `Nyitó egyenlegek dátuma ${dotted(d.date)}-ra állítva (${d.opening} tétel), ${d.signatures} aláírás-jelölés visszavonva${d.earlier ? `. Figyelem: ${d.earlier} nem nyitó tétel dátuma korábbi, mint ${dotted(d.date)}` : ''}`;
+      case 'holiday.set': return `Speciális nap: ${dotted(d.date)} (${d.kind === 'off' ? 'szabadnap' : 'ledolgozandó munkanap'})`;
+      case 'holiday.delete': return `Speciális nap törölve: ${dotted(d.date)}`;
       case 'push.sent': return `Névnap-értesítés elküldve (${d.sent} eszköz)`;
       case 'push.test': return `Teszt értesítés (${d.sent} eszköz)`;
       case 'push.subscribe': return 'Értesítés bekapcsolva egy eszközön';

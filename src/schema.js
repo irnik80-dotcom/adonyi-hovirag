@@ -70,6 +70,21 @@ export const SCHEMA = [
     auth TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   )`,
+  // Kézzel megadott speciális napok: áthelyezett pihenőnap (off) vagy ledolgozandó munkanap (work)
+  `CREATE TABLE IF NOT EXISTS special_days (
+    date TEXT PRIMARY KEY,
+    kind TEXT NOT NULL CHECK (kind IN ('off','work')),
+    label TEXT NOT NULL DEFAULT ''
+  )`,
+  // Gyors tétel-sablonok: típus, időtartam, megjegyzés és a címzettek (target: '' | 'all' | 'g<munkakör azonosító>')
+  `CREATE TABLE IF NOT EXISTS entry_presets (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    kind TEXT NOT NULL CHECK (kind IN ('credit','use')),
+    minutes INTEGER NOT NULL CHECK (minutes > 0),
+    note TEXT NOT NULL DEFAULT '',
+    target TEXT NOT NULL DEFAULT ''
+  )`,
 ];
 
 export const GROUPS_TABLE = `CREATE TABLE IF NOT EXISTS staff_groups (

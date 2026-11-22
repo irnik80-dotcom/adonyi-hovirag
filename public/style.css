@@ -379,3 +379,12 @@ h1,h2,.hello h1{font-weight:800;letter-spacing:-.02em}
 
 .nameday{border:1.5px solid var(--s3)}
 .nameday a b{min-width:64px}
+
+/* munkaszüneti napok */
+.calgrid .day.hol,.calgrid.pick .day.hol{color:var(--neg);font-weight:800;background:color-mix(in srgb,var(--neg) 12%,var(--surface))}
+.calgrid .day.wrk{box-shadow:inset 0 0 0 2px var(--bar);font-weight:800}
+.calgrid .day.wkd{color:var(--ink-2)}
+.calgrid .day.hol.future,.calgrid .day.wkd.future{background:var(--surface-2)}
+.calgrid .day.sel{color:var(--green-ink)}
+.holnote{margin:2px 0 8px;font-size:13.5px;color:var(--ink-2)}
+.holnote b{color:var(--neg)}
