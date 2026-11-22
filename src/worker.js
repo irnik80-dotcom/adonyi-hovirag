@@ -747,10 +747,10 @@ export default {
         if (dates.length > 62) return fail(400, 'Legfeljebb 62 nap rögzíthető egyszerre.');
         if (!(await env.DB.prepare('SELECT id FROM workers WHERE id = ?').bind(wid).first())) return fail(404, 'Nincs ilyen dolgozó.');
         const note = cleanText(b.note, 120);
-        const out = await env.DB.batch(dates.map((d) => env.DB.prepare('INSERT OR IGNORE INTO leaves (worker_id, date, note) VALUES (?, ?, ?)').bind(wid, d, note)));
-        const added = out.reduce((s, r) => s + (r.meta?.changes || 0), 0);
-        await audit(env, 'leave.add', { workerId: wid, count: added, from: dates[0], to: dates[dates.length - 1] });
-        return json({ added, skipped: dates.length - added }, 201);
+        const out = await env.DB.batch(dates.map((d) => env.DB.prepare('INSERT OR IGNORE INTO leaves (worker_id, date, note) VALUES (?, ?, ?) RETURNING id').bind(wid, d, note)));
+        const ids = out.flatMap((r) => (r.results || []).map((x) => x.id));
+        await audit(env, 'leave.add', { workerId: wid, count: ids.length, from: dates[0], to: dates[dates.length - 1] });
+        return json({ added: ids.length, skipped: dates.length - ids.length, ids }, 201);
       }
       if (path === '/api/leave/delete' && method === 'POST') {
         const ids = ((await request.json()).ids || []).map(Number).filter(Number.isInteger).slice(0, 100);

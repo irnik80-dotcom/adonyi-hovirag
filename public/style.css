@@ -405,3 +405,6 @@ h1,h2,.hello h1{font-weight:800;letter-spacing:-.02em}
 .upcoming a{align-items:start}
 .upcoming a span{white-space:normal;overflow:visible;text-overflow:clip;overflow-wrap:anywhere;line-height:1.35}
 .upcoming a b,.upcoming a em{white-space:nowrap}
+
+.seg.three{grid-template-columns:1fr 1fr 1fr}
+.seg.three button{padding:11px 4px;font-size:13px}
