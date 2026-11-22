@@ -400,3 +400,8 @@ h1,h2,.hello h1{font-weight:800;letter-spacing:-.02em}
 /* 5 menüpont a telefon szélességén is elfér */
 .nav a{font-size:11.5px;padding-left:0;padding-right:0}
 .nav a svg{width:26px;height:26px}
+
+/* a hosszú megjegyzések (például távollét oka) törjenek sort, ne vágódjanak le */
+.upcoming a{align-items:start}
+.upcoming a span{white-space:normal;overflow:visible;text-overflow:clip;overflow-wrap:anywhere;line-height:1.35}
+.upcoming a b,.upcoming a em{white-space:nowrap}

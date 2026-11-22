@@ -994,7 +994,7 @@ async function viewCalendar(q) {
     <div class="calhead"><a class="back" href="#/naptar?m=${key(prev)}" aria-label="Előző hónap">${ICONS.back}</a><b>${title}</b>
       <a class="back" href="#/naptar?m=${key(next)}" aria-label="Következő hónap" style="transform:scaleX(-1)">${ICONS.back}</a></div>
     <div class="calgrid"><span>H</span><span>K</span><span>Sze</span><span>Cs</span><span>P</span><span>Szo</span><span>V</span>${cells.join('')}</div>
-    <p class="tabs-note"><b style="color:var(--bar)">Zöld szám</b> (bal oldalon): szabadságon lévők, <b style="color:var(--coral)">piros szám</b> (jobb oldalon): szabadidőt kivevők. <b style="color:var(--neg)">Piros szám</b>: munkaszüneti nap, keretes: ledolgozandó munkanap. Az áthelyezett napokat a Beállításokban adhatod meg.</p>
+    <p class="tabs-note">A napokon a <b style="color:var(--bar)">zöld jelvény</b> (bal felül) a szabadságon lévők, a <b style="color:var(--coral)">piros jelvény</b> (jobb felül) a szabadidőt kivevők száma. <b style="color:var(--neg)">Piros számú nap</b>: munkaszüneti nap, <b>keretes</b>: ledolgozandó munkanap. Az áthelyezett napokat a Beállításokban adhatod meg.</p>
     <div id="dd" class="upcoming" hidden></div>${nav('cal')}`;
   const show = (date) => {
     document.querySelectorAll('.day[data-day]').forEach((c) => { const on = c.dataset.day === date; c.classList.toggle('sel', on); c.setAttribute('aria-pressed', on); });
