@@ -1,8 +1,12 @@
 // Nyári beosztás – tiszta logika (böngészőben, Web Workerben és Node-tesztben is fut).
 // Dátumok mindenhol 'ÉÉÉÉ-HH-NN' szövegként; a számítás UTC-ben történik, így nincs időzóna-csúszás.
 
-export const SHIFTS = ['DE', 'DU'];
-export const SHIFT_LABEL = { DE: 'Délelőtt', DU: 'Délután' };
+export const SHIFTS = ['DE', 'DU'];           // kétműszakos munkakör
+export const ALL_CODES = ['DE', 'DU', 'D'];      // D: egy műszakos munkakör napi beosztása (pl. pedagógiai asszisztens)
+export const SHIFT_LABEL = { DE: 'Délelőtt', DU: 'Délután', D: 'Napi' };
+// A munkakör műszakjai: kétműszakos (DE + DU) vagy egy műszakos (D)
+export const shiftsOf = (role) => (role?.single ? ['D'] : SHIFTS);
+export const minSum = (role, key = 'min') => shiftsOf(role).reduce((a, s) => a + (role[key]?.[s] ?? role.min[s] ?? 0), 0);
 export const WEEKDAY_SHORT = ['V', 'H', 'K', 'Sze', 'Cs', 'P', 'Szo'];
 export const MONTH_NAMES = ['január', 'február', 'március', 'április', 'május', 'június', 'július', 'augusztus', 'szeptember', 'október', 'november', 'december'];
 export const ABSENCE_KINDS = { szabadsag: 'Szabadság', egyeb: 'Egyéb távollét' };
@@ -11,14 +15,14 @@ export const ABSENCE_STATUS = { igenyelt: 'Igényelt', jovahagyott: 'Jóváhagyo
 // A fő alkalmazás munkakör-csoportjainak alapértelmezett megfeleltetése és induló létszáma (4.1. pont, nem végleges).
 const ROLE_PRESETS = [
   { match: /pedag[oó]gus|óvodapedag|ovodapedag/i, not: /asszisztens/i, label: 'Óvodapedagógus', min: { DE: 2, DU: 1 } },
-  { match: /asszisztens/i, label: 'Pedagógiai asszisztens', min: { DE: 2, DU: 1 } },
+  { match: /asszisztens/i, label: 'Pedagógiai asszisztens', single: true, min: { DE: 2, DU: 1, D: 3 } },
   { match: /dajk/i, label: 'Dajka', min: { DE: 2, DU: 2 } },
 ];
 
 export const DEFAULT_SETTINGS = {
   alternatives: 3,
-  colors: { DE: '#FFE08A', DU: '#A9D3F5', szabadsag: '#9FD89A', egyeb: '#D9C3F0', piheno: '#FFFFFF', hetvege: '#D6D6D6', zarva: '#BDBDBD' },
-  abbr: { DE: 'DE', DU: 'DU', szabadsag: 'SZ', egyeb: 'T', piheno: '', hetvege: '', zarva: 'Ü' },
+  colors: { DE: '#FFE08A', DU: '#A9D3F5', D: '#F3C9A8', szabadsag: '#9FD89A', egyeb: '#D9C3F0', piheno: '#FFFFFF', hetvege: '#D6D6D6', zarva: '#BDBDBD' },
+  abbr: { DE: 'DE', DU: 'DU', D: 'D', szabadsag: 'SZ', egyeb: 'T', piheno: '', hetvege: '', zarva: 'Ü' },
   report: { title: 'Adonyi Hóvirág Óvoda', margin_mm: 5, show_counts: true, weekend_x: false, period_only: true },
 };
 
@@ -49,7 +53,7 @@ export function newPlan(year, groups, workers) {
   const roles = [];
   for (const p of ROLE_PRESETS) {
     const g = groups.find((x) => p.match.test(x.name) && !(p.not && p.not.test(x.name)) && !roles.some((r) => r.group_id === x.id));
-    if (g) roles.push({ group_id: g.id, label: p.label, min: { ...p.min }, opt: { ...p.min } });
+    if (g) roles.push({ group_id: g.id, label: p.label, single: Boolean(p.single), min: { DE: 0, DU: 0, D: 0, ...p.min }, opt: { DE: 0, DU: 0, D: 0, ...p.min } });
   }
   return {
     v: 1,
@@ -89,7 +93,21 @@ export function normalizePlan(p) {
   p.settings = { ...structuredClone(DEFAULT_SETTINGS), ...(p.settings || {}) };
   for (const k of ['colors', 'abbr', 'report']) p.settings[k] = { ...DEFAULT_SETTINGS[k], ...(p.settings[k] || {}) };
   p.closed ||= []; p.absences ||= []; p.alternatives ||= []; p.approvals ||= {}; p.staff ||= []; p.roles ||= [];
-  for (const r of p.roles) { r.min ||= { DE: 0, DU: 0 }; r.opt ||= { ...r.min }; }
+  for (const r of p.roles) {
+    r.min ||= { DE: 0, DU: 0 }; r.opt ||= { ...r.min };
+    // 1 → 2: a pedagógiai asszisztens egy műszakos (D); a meglévő DE/DU beosztásuk D lesz
+    if (r.single === undefined) {
+      r.single = /asszisztens/i.test(r.label);
+      if (r.single) {
+        r.min.D = (r.min.DE || 0) + (r.min.DU || 0); r.opt.D = Math.max(r.min.D, (r.opt.DE || 0) + (r.opt.DU || 0));
+        const ids = new Set(p.staff.filter((x) => x.group_id === r.group_id).map((x) => String(x.id)));
+        const conv = (g) => { for (const [w, days] of Object.entries(g || {})) if (ids.has(String(w))) for (const d of Object.keys(days)) days[d] = 'D'; };
+        conv(p.schedule?.grid); for (const a of p.alternatives) conv(a.grid);
+        for (const k of Object.keys(p.locks || {})) if (ids.has(k.split('|')[0]) && p.locks[k] !== 'P') p.locks[k] = 'D';
+      }
+    }
+    r.min.D ??= 0; r.opt.D ??= r.min.D;
+  }
   return p;
 }
 
@@ -152,12 +170,12 @@ export function expandAbsences(plan) {
 export const isAbsent = (absMap, wid, date) => Boolean(absMap.get(wid)?.has(date));
 
 // ---------- beosztás-rács segédek ----------
-// grid: { [worker_id]: { [date]: 'DE'|'DU' } } – csak a munkanapok szerepelnek; ami hiányzik, az pihenőnap.
-// locks: { 'wid|date': 'DE'|'DU'|'P' } – kézzel rögzített cellák, generáláskor kötelező feltételként maradnak.
+// grid: { [worker_id]: { [date]: 'DE'|'DU'|'D' } } – csak a munkanapok szerepelnek; ami hiányzik, az pihenőnap.
+// locks: { 'wid|date': 'DE'|'DU'|'D'|'P' } – kézzel rögzített cellák, generáláskor kötelező feltételként maradnak.
 export const cellOf = (grid, wid, date) => grid?.[wid]?.[date] || null;
 export function setCell(grid, wid, date, val) {
   grid[wid] ||= {};
-  if (val === 'DE' || val === 'DU') grid[wid][date] = val; else delete grid[wid][date];
+  if (ALL_CODES.includes(val)) grid[wid][date] = val; else delete grid[wid][date];
 }
 export const lockKey = (wid, date) => `${wid}|${date}`;
 export const approvalKey = (date, shift, gid) => `${date}|${shift}|${gid}`;
@@ -167,7 +185,7 @@ export function roleProblem(plan, cal, absMap, role, locks = {}) {
   const workers = staffByRole(plan).find((x) => x.role.group_id === role.group_id)?.workers || [];
   const avail = new Map(workers.map((w) => [w.id, new Set(cal.workdays.filter((d) => !isAbsent(absMap, w.id, d)))]));
   const totalAvail = workers.reduce((a, w) => a + avail.get(w.id).size, 0);
-  const demand = cal.workdays.length * ((role.opt?.DE ?? role.min.DE) + (role.opt?.DU ?? role.min.DU));
+  const demand = cal.workdays.length * minSum(role, 'opt');
   const target = new Map(workers.map((w) => [w.id, totalAvail ? (demand * avail.get(w.id).size) / totalAvail : 0]));
   const lk = {};
   for (const w of workers) for (const d of cal.workdays) { const v = locks[lockKey(w.id, d)]; if (v) lk[lockKey(w.id, d)] = v; }
@@ -184,29 +202,33 @@ export function precheck(plan, cal, absMap, locks = {}) {
     const pr = roleProblem(plan, cal, absMap, role, locks);
     for (const w of pr.workers) for (const d of cal.workdays) {
       const v = locks[lockKey(w.id, d)];
-      if (v && v !== 'P' && isAbsent(absMap, w.id, d)) conflicts.push({ type: 'lock_absent', date: d, role: role.label, group_id: role.group_id, worker: w.name, worker_id: w.id, shift: v });
+      if (v && v !== 'P' && !shiftsOf(role).includes(v)) conflicts.push({ type: 'lock_shift', date: d, role: role.label, group_id: role.group_id, worker: w.name, worker_id: w.id, shift: v });
+      else if (v && v !== 'P' && isAbsent(absMap, w.id, d)) conflicts.push({ type: 'lock_absent', date: d, role: role.label, group_id: role.group_id, worker: w.name, worker_id: w.id, shift: v });
     }
+    const shifts = shiftsOf(role);
     for (const d of cal.workdays) {
-      let lockedDE = 0, lockedDU = 0, free = 0;
+      const locked = Object.fromEntries(shifts.map((x) => [x, 0]));
+      let free = 0;
       const absent = [];
       for (const w of pr.workers) {
         const v = locks[lockKey(w.id, d)];
         const here = pr.avail.get(w.id).has(d);
         if (!here) { const a = absMap.get(w.id)?.get(d); absent.push({ worker_id: w.id, name: w.name, absence: a }); continue; }
-        if (v === 'DE') lockedDE++; else if (v === 'DU') lockedDU++; else if (v !== 'P') free++;
+        if (v && v !== 'P' && locked[v] != null) locked[v]++; else if (!v) free++;
       }
-      const needDE = Math.max(0, role.min.DE - lockedDE), needDU = Math.max(0, role.min.DU - lockedDU);
-      if (free < needDE + needDU) {
-        const available = free + lockedDE + lockedDU;
+      const need = Object.fromEntries(shifts.map((x) => [x, Math.max(0, role.min[x] - locked[x])]));
+      const needSum = shifts.reduce((a, x) => a + need[x], 0);
+      if (free < needSum) {
+        const lockedSum = shifts.reduce((a, x) => a + locked[x], 0);
         conflicts.push({ type: 'shortage', date: d, role: role.label, group_id: role.group_id,
-          required: { DE: role.min.DE, DU: role.min.DU }, available, locked: { DE: lockedDE, DU: lockedDU },
-          missing: needDE + needDU - free,
-          // a hiányt a délutáni műszakra írjuk, ha a délelőtt még kitölthető (a délelőtt a nagyobb létszámigényű)
-          shifts: free >= needDE ? ['DU'] : (needDU > 0 ? ['DE', 'DU'] : ['DE']),
+          required: Object.fromEntries(shifts.map((x) => [x, role.min[x]])), available: free + lockedSum, locked,
+          missing: needSum - free,
+          // kétműszakos munkakörnél a hiányt a délutánra írjuk, ha a délelőtt még kitölthető
+          shifts: shifts.length === 1 ? shifts : free >= need.DE ? ['DU'] : (need.DU > 0 ? ['DE', 'DU'] : ['DE']),
           absent: absent.map((x) => ({ name: x.name || nameOf.get(x.worker_id), kind: x.absence?.kind, from: x.absence?.from, to: x.absence?.to, status: x.absence?.status, note: x.absence?.note })) });
       }
     }
-    if (!pr.workers.length && (role.min.DE || role.min.DU) && cal.workdays.length) conflicts.push({ type: 'no_staff', role: role.label, group_id: role.group_id });
+    if (!pr.workers.length && minSum(role) && cal.workdays.length) conflicts.push({ type: 'no_staff', role: role.label, group_id: role.group_id });
   }
   return conflicts;
 }
@@ -227,6 +249,7 @@ export function validate(plan, cal, absMap, schedule) {
       if (!cal.byDate.get(d)?.work) { if (cal.byDate.has(d)) errors.push({ type: 'nonworkday', date: d, worker: s?.name || `#${wid}`, shift: v, msg: `${s?.name || wid}: beosztás nem munkanapra (${dotted(d)})` }); continue; }
       if (!s || !included.has(wid)) errors.push({ type: 'not_included', date: d, worker: s?.name || `#${wid}`, shift: v, msg: `${s?.name || wid} nincs bevonva a tervbe, mégis be van osztva (${dotted(d)})` });
       else if (!roleByGid.has(s.group_id)) errors.push({ type: 'role', date: d, worker: s.name, shift: v, msg: `${s.name}: a munkaköre nem szerepel a tervben` });
+      else if (!shiftsOf(roleByGid.get(s.group_id)).includes(v)) errors.push({ type: 'shift', date: d, worker: s.name, shift: v, msg: `${s.name}: a(z) ${v} műszak nem létezik a munkakörében (${dotted(d)})` });
       if (isAbsent(absMap, wid, d)) {
         const a = absMap.get(wid).get(d);
         errors.push({ type: 'absent', date: d, worker: s?.name, worker_id: wid, shift: v, msg: `${s?.name}: ${ABSENCE_KINDS[a.kind] || 'távollét'} napjára van beosztva (${dotted(d)}, ${SHIFT_LABEL[v]})` });
@@ -235,7 +258,7 @@ export function validate(plan, cal, absMap, schedule) {
   }
   for (const { role, workers } of staffByRole(plan)) {
     for (const d of cal.workdays) {
-      for (const sh of SHIFTS) {
+      for (const sh of shiftsOf(role)) {
         const names = workers.filter((w) => grid[w.id]?.[d] === sh && !isAbsent(absMap, w.id, d)).map((w) => w.name);
         const n = names.length;
         counts[`${d}|${sh}|${role.group_id}`] = n;
@@ -271,7 +294,7 @@ export function metrics(plan, cal, absMap, grid) {
     const devs = [];
     for (const w of workers) {
       const av = pr.avail.get(w.id);
-      let days = 0, full = 0, worked = 0, changes = 0, iso = 0, de = 0, du = 0;
+      let days = 0, full = 0, worked = 0, changes = 0, iso = 0, de = 0, du = 0, dd = 0;
       for (const wk of cal.weeks) {
         const ad = wk.days.filter((d) => av.has(d));
         if (!ad.length) continue;
@@ -284,10 +307,10 @@ export function metrics(plan, cal, absMap, grid) {
         // elszigetelt munkavégzés: 1–2 napos szakasz egy olyan héten, ahol legalább 3 nap elérhető lett volna
         if (ad.length >= 3) { let run = 0; for (const v of [...seq, null]) { if (v) run++; else { if (run > 0 && run <= 2) iso += run; run = 0; } } }
       }
-      for (const d of cal.workdays) { const v = grid?.[w.id]?.[d]; if (v && av.has(d)) { days++; if (v === 'DE') de++; else du++; } }
+      for (const d of cal.workdays) { const v = grid?.[w.id]?.[d]; if (v && av.has(d)) { days++; if (v === 'DE') de++; else if (v === 'DU') du++; else dd++; } }
       const target = pr.target.get(w.id);
       devs.push(days - target);
-      perWorker.push({ id: w.id, name: w.name, role: role.label, group_id: role.group_id, available: av.size, days, de, du, target: Math.round(target * 10) / 10, weeks: worked, fullWeeks: full, shiftChanges: changes, isolated: iso });
+      perWorker.push({ id: w.id, name: w.name, role: role.label, group_id: role.group_id, available: av.size, days, de, du, d: dd, single: Boolean(role.single), target: Math.round(target * 10) / 10, weeks: worked, fullWeeks: full, shiftChanges: changes, isolated: iso });
       blocksFull += full; blocksWorked += worked; shiftChanges += changes; isolated += iso;
     }
     const spread = devs.length ? Math.max(...devs) - Math.min(...devs) : 0;
@@ -295,7 +318,7 @@ export function metrics(plan, cal, absMap, grid) {
     perRole.push({ group_id: role.group_id, role: role.label, spread: Math.round(spread * 10) / 10, maxDev: Math.round(maxDev * 10) / 10 });
   }
   let surplusCells = 0, surplusPersons = 0, approvedSurplus = 0;
-  for (const { role, workers } of staffByRole(plan)) for (const d of cal.workdays) for (const sh of SHIFTS) {
+  for (const { role, workers } of staffByRole(plan)) for (const d of cal.workdays) for (const sh of shiftsOf(role)) {
     const n = workers.filter((w) => grid?.[w.id]?.[d] === sh && !isAbsent(absMap, w.id, d)).length;
     const opt = role.opt?.[sh] ?? role.min[sh];
     if (n > opt) { surplusCells++; surplusPersons += n - opt; if (plan.approvals?.[approvalKey(d, sh, role.group_id)]) approvedSurplus++; }
@@ -408,7 +431,7 @@ export function parseAbsenceRows(rows, plan) {
 export function capacitySummary(plan, cal, absMap) {
   return plan.roles.map((role) => {
     const pr = roleProblem(plan, cal, absMap, role);
-    const need = cal.workdays.length * (role.min.DE + role.min.DU);
+    const need = cal.workdays.length * minSum(role);
     const avail = pr.workers.reduce((a, w) => a + pr.avail.get(w.id).size, 0);
     return { role: role.label, group_id: role.group_id, workers: pr.workers.length, need, planned: pr.demand, avail, perWorker: pr.workers.length ? Math.round((pr.demand / pr.workers.length) * 10) / 10 : 0 };
   });
