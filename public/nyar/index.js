@@ -180,6 +180,11 @@ function tabSettings(el) {
       ${hol.map((h) => `<div class="set-item"><span>${M.dotted(h.date)} · ${esc(h.label)}</span><em class="tabs-note">${h.kind === 'off' ? 'munkaszüneti nap' : 'ledolgozandó munkanap'} (fő app)</em></div>`).join('')}
       ${p.closed.map((c, i) => `<div class="set-item"><span>${M.dotted(c.date)} · ${esc(c.label || 'Zárva')}</span><button class="btn ghost small" data-delc="${i}" type="button">Törlés</button></div>`).join('')}
       <form id="cf" style="margin-top:8px"><div class="row"><input class="input" type="date" id="cd" min="${p.period.from}" max="${p.period.to}" required aria-label="Dátum"><input class="input" id="cl" maxlength="60" placeholder="Megnevezés (pl. nevelés nélküli munkanap)"></div><button class="btn small" type="submit" style="margin-top:8px">Zárva tartási nap hozzáadása</button></form>
+      <form id="hf2" style="margin-top:14px"><span class="label">Áthelyezett munkanap / pihenőnap</span>
+        <div class="row"><input class="input" type="date" id="hd2" required aria-label="Dátum"><select class="input" id="hk2" aria-label="Típus"><option value="work">Ledolgozandó munkanap (pl. szombat)</option><option value="off">Szabadnap (áthelyezett pihenőnap)</option></select></div>
+        <input class="input" id="hl2" maxlength="60" placeholder="Megnevezés (nem kötelező)" style="margin-top:8px">
+        <button class="btn small" type="submit" style="margin-top:8px">Hozzáadás</button>
+        <p class="tabs-note">Ez a fő alkalmazás naptárába kerül (Beállítások → „Munkaszüneti napok és áthelyezett munkanapok”), így a plusz-mínusz nyilvántartás is ezt használja. Törölni is ott lehet.</p></form>
       <p class="tabs-note">A törvényi ünnepeket és a fő alkalmazásban megadott speciális napokat automatikusan figyelembe veszi. Az itt megadott nap csak erre a tervre vonatkozik.</p></section>
     <section class="field"><span class="label">Működés</span>
       <select class="input" id="pm" aria-label="Működési mód">${Object.entries(M.MODES).map(([k, l]) => `<option value="${k}" ${(p.mode || 'mindenki') === k ? 'selected' : ''}>${l}</option>`).join('')}</select>
@@ -217,6 +222,14 @@ function tabSettings(el) {
   };
   $('pf').onchange = per; $('pt').onchange = per;
   $('pm').onchange = (e) => { p.mode = e.target.value; changed({ rerender: rerenderTab }); };
+  $('hf2').onsubmit = async (e) => {
+    e.preventDefault();
+    const kind = $('hk2').value;
+    try {
+      await C.api('/holidays', { method: 'POST', body: { date: $('hd2').value, kind, label: $('hl2').value.trim() || (kind === 'work' ? 'Ledolgozandó munkanap' : 'Áthelyezett pihenőnap') } });
+      await loadContext(planYears()); changed({ rerender: rerenderTab }); C.toast('Hozzáadva');
+    } catch (err) { C.toast(errMsg(err)); }
+  };
   $('cf').onsubmit = (e) => { e.preventDefault(); const d = $('cd').value; if (!d) return; p.closed = p.closed.filter((c) => c.date !== d).concat({ date: d, label: $('cl').value.trim() }).sort((a, b) => a.date.localeCompare(b.date)); changed({ rerender: rerenderTab }); };
   el.querySelectorAll('[data-delc]').forEach((b) => (b.onclick = () => { p.closed.splice(+b.dataset.delc, 1); changed({ rerender: rerenderTab }); }));
   p.roles.forEach((r, i) => {
@@ -550,7 +563,9 @@ async function allVariantsPdf(btn) {
   const p = st.plan;
   const t = btn.textContent; btn.disabled = true; btn.textContent = 'Készül…';
   try {
-    const sub = (v) => { const m = v.metrics; return `Teljes heti blokk: ${m.fullBlockRate}% · műszakváltás: ${m.shiftChanges} · napszám-szórás: ${m.maxSpread} nap · elszigetelt nap: ${m.isolated} · többlet: ${m.surplusPersons} fő×műszak`; };
+    const sub = (v) => { const m = v.metrics; return M.allWork(p)
+      ? `Műszakváltás a héten belül: ${m.shiftChanges} · délelőtt-arány eltérése a dolgozók között: ${m.deShareSpread} %pont · a tervezett fölött: ${m.surplusPersons} fő×műszak`
+      : `Teljes heti blokk: ${m.fullBlockRate}% · műszakváltás: ${m.shiftChanges} · napszám-szórás: ${m.maxSpread} nap · elszigetelt nap: ${m.isolated} · többlet: ${m.surplusPersons} fő×műszak`; };
     const sheets = p.alternatives.filter((a) => a.grid).map((a, i) => {
       const v = M.validate(p, st.cal, st.abs, { grid: a.grid });
       return { grid: a.grid, val: v, label: `${i + 1}. ${a.label}`, sub: sub(v) };
