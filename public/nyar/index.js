@@ -550,7 +550,9 @@ async function allVariantsPdf(btn) {
   const p = st.plan;
   const t = btn.textContent; btn.disabled = true; btn.textContent = 'Készül…';
   try {
-    const sub = (v) => { const m = v.metrics; return `Teljes heti blokk: ${m.fullBlockRate}% · műszakváltás: ${m.shiftChanges} · napszám-szórás: ${m.maxSpread} nap · elszigetelt nap: ${m.isolated} · többlet: ${m.surplusPersons} fő×műszak`; };
+    const sub = (v) => { const m = v.metrics; return M.allWork(p)
+      ? `Műszakváltás a héten belül: ${m.shiftChanges} · délelőtt-arány eltérése a dolgozók között: ${m.deShareSpread} %pont · a tervezett fölött: ${m.surplusPersons} fő×műszak`
+      : `Teljes heti blokk: ${m.fullBlockRate}% · műszakváltás: ${m.shiftChanges} · napszám-szórás: ${m.maxSpread} nap · elszigetelt nap: ${m.isolated} · többlet: ${m.surplusPersons} fő×műszak`; };
     const sheets = p.alternatives.filter((a) => a.grid).map((a, i) => {
       const v = M.validate(p, st.cal, st.abs, { grid: a.grid });
       return { grid: a.grid, val: v, label: `${i + 1}. ${a.label}`, sub: sub(v) };
