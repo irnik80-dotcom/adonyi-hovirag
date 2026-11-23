@@ -20,6 +20,10 @@ function ensureCss() {
 addEventListener('beforeunload', (e) => { if (st.dirty) { e.preventDefault(); e.returnValue = ''; } });
 
 export async function mount($app, ctx) {
+  // Mobilon a fülváltás előbb cseréli le az oldalt, mint hogy a szerkesztett mező „change” eseménye lefutna:
+  // a fókuszban lévő mező elhagyása lefuttatja, így a beírt érték nem vész el.
+  const act = document.activeElement;
+  if (act && act !== document.body && act.closest?.('#nyv')) act.blur();
   C = ctx; ensureCss();
   const parts = ctx.path.split('/').filter(Boolean);
   if (parts.length === 1) { await flush(); st.id = null; st.plan = null; return viewPlans($app); }
@@ -210,15 +214,24 @@ function tabSettings(el) {
   $('cf').onsubmit = (e) => { e.preventDefault(); const d = $('cd').value; if (!d) return; p.closed = p.closed.filter((c) => c.date !== d).concat({ date: d, label: $('cl').value.trim() }).sort((a, b) => a.date.localeCompare(b.date)); changed({ rerender: rerenderTab }); };
   el.querySelectorAll('[data-delc]').forEach((b) => (b.onclick = () => { p.closed.splice(+b.dataset.delc, 1); changed({ rerender: rerenderTab }); }));
   p.roles.forEach((r, i) => {
-    el.querySelector(`[data-rl="${i}"]`).onchange = (e) => { r.label = e.target.value.trim() || r.label; changed(); };
+    el.querySelector(`[data-rl="${i}"]`).oninput = (e) => { if (e.target.value.trim()) { r.label = e.target.value.trim(); changed(); } };
+    let prev = { ...r.min };
     for (const [id, a, k] of [[`mde${i}`, 'min', 'DE'], [`mdu${i}`, 'min', 'DU'], [`ode${i}`, 'opt', 'DE'], [`odu${i}`, 'opt', 'DU']]) {
-      $(id).onchange = (e) => {
+      const optEl = $(`o${k.toLowerCase()}${i}`);
+      const apply = (e, final) => {
+        if (e.target.value === '' && !final) return;
         const v = Math.max(0, Math.min(20, Math.trunc(Number(e.target.value) || 0)));
         r[a][k] = v;
-        if (a === 'min' && r.opt[k] < v) r.opt[k] = v;
-        if (a === 'opt' && v < r.min[k]) { r.opt[k] = r.min[k]; C.toast('A tervezett létszám nem lehet kisebb a minimumnál.'); }
-        changed({ rerender: rerenderTab });
+        // a minimum emelése a tervezettet is viszi; a csökkentése a tervezettet is csökkenti, ha addig egyeztek
+        if (a === 'min') { if (r.opt[k] < v || prev[k] === r.opt[k]) { r.opt[k] = v; optEl.value = v; } }
+        if (a === 'opt' && v < r.min[k] && final) { r.opt[k] = r.min[k]; e.target.value = r.min[k]; C.toast('A tervezett létszám nem lehet kisebb a minimumnál.'); }
+        prev = { ...r.min };
+        if (final) e.target.value = r[a][k];
+        changed();
       };
+      $(id).onfocus = () => { prev = { ...r.min }; };
+      $(id).oninput = (e) => apply(e, false);
+      $(id).onchange = (e) => apply(e, true);
     }
   });
   const mv = (i, d) => { const a = p.roles; [a[i], a[i + d]] = [a[i + d], a[i]]; changed({ rerender: rerenderTab }); };
@@ -234,12 +247,13 @@ function tabSettings(el) {
     p.roles.push({ group_id: g.id, label: g.name, min: { DE: 1, DU: 1 }, opt: { DE: 1, DU: 1 } });
     p.staff = M.syncStaff(p.staff, p.roles, st.ctx.workers); changed({ rerender: rerenderTab });
   };
-  $('na').onchange = (e) => { s.alternatives = Math.max(1, Math.min(5, Math.trunc(Number(e.target.value) || 3))); changed(); };
-  el.querySelectorAll('[data-col]').forEach((i) => (i.onchange = () => { s.colors[i.dataset.col] = i.value; changed({ rerender: rerenderTab }); }));
-  el.querySelectorAll('[data-abbr]').forEach((i) => (i.onchange = () => { s.abbr[i.dataset.abbr] = i.value.trim(); changed({ rerender: rerenderTab }); }));
+  $('na').oninput = $('na').onchange = (e) => { s.alternatives = Math.max(1, Math.min(5, Math.trunc(Number(e.target.value) || 3))); changed(); };
+  const sw = (k) => el.querySelector(`[data-col="${k}"]`).closest('.ny-code').querySelector('.ny-sw');
+  el.querySelectorAll('[data-col]').forEach((i) => (i.oninput = i.onchange = () => { s.colors[i.dataset.col] = i.value; sw(i.dataset.col).style.background = i.value; changed(); }));
+  el.querySelectorAll('[data-abbr]').forEach((i) => (i.oninput = i.onchange = () => { s.abbr[i.dataset.abbr] = i.value.trim(); sw(i.dataset.abbr).textContent = s.abbr[i.dataset.abbr]; changed(); }));
   $('cres').onclick = () => { s.colors = { ...M.DEFAULT_SETTINGS.colors }; s.abbr = { ...M.DEFAULT_SETTINGS.abbr }; changed({ rerender: rerenderTab }); };
-  $('rt').onchange = (e) => { s.report.title = e.target.value.trim(); changed(); };
-  $('rm').onchange = (e) => { s.report.margin_mm = Math.max(0, Math.min(15, Number(e.target.value) || 0)); changed(); };
+  $('rt').oninput = (e) => { s.report.title = e.target.value.trim(); changed(); };
+  $('rm').oninput = $('rm').onchange = (e) => { s.report.margin_mm = Math.max(0, Math.min(15, Number(e.target.value) || 0)); changed(); };
   $('rc').onchange = (e) => { s.report.show_counts = e.target.checked; changed(); };
   $('rw').onchange = (e) => { s.report.weekend_x = e.target.checked; changed(); };
   $('rp').onchange = (e) => { s.report.period_only = e.target.checked; changed(); };
