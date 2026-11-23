@@ -157,14 +157,20 @@ export async function makePdf(plan, cal, abs, val, months, deps = null, sheets =
     // jelmagyarázat
     let lx = left; const ly = Math.max(bottom + 14, tableBottom - gap - 16);
     text('Jelmagyarázat:', lx, ly + 4, 9, B); lx += B.widthOfTextAtSize('Jelmagyarázat:', 9) + 10;
-    const items = [['DE', 'Délelőtti műszak'], ['DU', 'Délutáni műszak'], ...(groups.some((g) => g.role.single) ? [['D', 'Napi beosztás']] : []), ['szabadsag', 'Szabadság'], ['egyeb', 'Egyéb távollét'], ['piheno', 'Pihenőnap'], ['hetvege', 'Hétvége'], ['zarva', 'Ünnepnap / zárva']];
+    const usedKinds = new Set((plan.absences || []).map((a) => a.kind));
+    const allW = (plan.mode || 'mindenki') === 'mindenki';
+    const items = [['DE', 'Délelőtti műszak'], ['DU', 'Délutáni műszak'], ...(groups.some((g) => g.role.single) ? [['D', 'Napi beosztás']] : []),
+      ['szabadsag', 'Szabadság'], ['hetvege', 'Hétvége'], ['zarva', 'Ünnepnap / zárva'], ['piheno', allW ? 'Nem dolgozik' : 'Pihenőnap'],
+      ...[['beteg', 'Betegállomány'], ['pluszora', 'Plusz órás szabadnap'], ['egyeb', 'Egyéb távollét']].filter(([k]) => usedKinds.has(k))];
     for (const [k, label] of items) {
       const sw = 26, sh2 = 14;
+      const need = sw + 4 + F.widthOfTextAtSize(label, 9) + 14;
+      if (lx + need > right) break; // nem fér ki: a ritkábbak maradnak le
       rect(lx, ly, sw, sh2, hex(rgb, s.colors[k]));
       page.drawRectangle({ x: lx, y: ly, width: sw, height: sh2, borderColor: line, borderWidth: 0.4 });
       if (s.abbr[k]) centered(s.abbr[k], lx, sw, ly + 4, 8, B);
       text(label, lx + sw + 4, ly + 4, 9);
-      lx += sw + 4 + F.widthOfTextAtSize(label, 9) + 14;
+      lx += need;
     }
     const note = 'Hétvégén és ünnepnapon nincs munkavégzés. A létszám sorban a ✓ jóváhagyott többletet jelöl.';
     text(note, left, ly - 11, 8, F, grey);

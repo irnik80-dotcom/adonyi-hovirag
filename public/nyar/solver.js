@@ -17,18 +17,18 @@
 import { shiftsOf, roleProblem, lockKey } from './model.js';
 
 export const PROFILES = {
-  ajanlott: { label: 'Ajánlott', desc: 'A fontossági sorrend szerint: ötnapos blokkok, azonos műszak a héten, majd a lehető legegyenletesebb terhelés, fölösleges többlet nélkül.',
+  ajanlott: { label: 'Ajánlott', desc: 'A fontossági sorrend szerint: ötnapos blokkok, azonos műszak a héten, majd a lehető legegyenletesebb terhelés, fölösleges többlet nélkül.', descAll: 'Pihenőnap nélkül: a dolgozó egész héten ugyanabban a műszakban, a délelőttök és délutánok aránya dolgozónként kiegyenlített.',
     W: { opt: 400, block: 60, shift: 25, fair: 6, fairMax: 14, run: 12, surplus: 14 } },
-  blokk: { label: 'Erős blokkok', desc: 'Mindennél fontosabb a teljes hét és az azonos műszak; a terhelés kicsit kevésbé egyenletes.',
+  blokk: { label: 'Erős blokkok', labelAll: 'Heti azonos műszak', desc: 'Mindennél fontosabb a teljes hét és az azonos műszak; a terhelés kicsit kevésbé egyenletes.', descAll: 'Pihenőnap nélkül: a heti azonos műszak mindennél fontosabb; a délelőtt–délután arány dolgozónként kevésbé kiegyenlített.',
     W: { opt: 400, block: 150, shift: 70, fair: 2, fairMax: 5, run: 30, surplus: 14 } },
-  egyenletes: { label: 'Egyenletes terhelés', desc: 'A dolgozók közötti napszám-eltérést csökkenti; ehhez rövidebb blokkot vagy létszámtöbbletet is elfogad.',
+  egyenletes: { label: 'Egyenletes terhelés', labelAll: 'Egyenletes DE/DU arány', desc: 'A dolgozók közötti napszám-eltérést csökkenti; ehhez rövidebb blokkot vagy létszámtöbbletet is elfogad.', descAll: 'Pihenőnap nélkül: mindenki közel ugyanannyi délelőttöt és délutánt kap, ehhez ritkán héten belüli műszakváltást is elfogad.',
     W: { opt: 400, block: 35, shift: 15, fair: 20, fairMax: 50, run: 8, surplus: 4 } },
 };
 export const PROFILE_ORDER = ['ajanlott', 'blokk', 'egyenletes'];
 
 // avoid: korábbi megoldások rácsa ({wid:{date:shift}}); minDiff: a korábbi munkanapok legalább ekkora hányada legyen más
 export function buildModel(pr, W, avoid = [], minDiff = 0) {
-  const { workers, avail, target, workdays, weeks, role, locks } = pr;
+  const { workers, avail, target, workdays, weeks, role, locks, allWork, share } = pr;
   const SH = shiftsOf(role);
   const obj = [];         // [coef, var]
   const rows = [];        // szöveges feltételek
@@ -48,7 +48,9 @@ export function buildModel(pr, W, avoid = [], minDiff = 0) {
         const v = `x_${wi}_${di}_${s}`; X.set(`${wi}|${di}|${s}`, v); bins.push(v);
         if (lk) bounds.push(` ${v} = ${lk === s ? 1 : 0}`);
       }
-      if (SH.length > 1) row(`one_${wi}_${di}`, SH.map((s) => `+ x_${wi}_${di}_${s}`), '<=', 1);
+      // pihenőnap nélküli módban aki nincs távol, dolgozik (kivéve, ha kézzel pihenőre rögzítették)
+      if (allWork && lk !== 'P') row(`one_${wi}_${di}`, SH.map((s) => `+ x_${wi}_${di}_${s}`), '=', 1);
+      else if (SH.length > 1) row(`one_${wi}_${di}`, SH.map((s) => `+ x_${wi}_${di}_${s}`), '<=', 1);
     }
   });
   const workTerms = (wi, di, c = 1) => SH.map((s) => X.get(`${wi}|${di}|${s}`)).filter(Boolean).map((v) => term(c, v));
@@ -60,8 +62,15 @@ export function buildModel(pr, W, avoid = [], minDiff = 0) {
       const min = role.min[s], opt = role.opt?.[s] ?? min;
       if (min > 0) row(`min_${di}_${s}`, t, '>=', min);
       if (opt > min) { const u = `u_${di}_${s}`; obj.push([W.opt, u]); row(`opt_${di}_${s}`, [`+ ${u}`, ...t], '>=', opt); }
-      if (t.length > opt) { const o = `o_${di}_${s}`; obj.push([W.surplus, o]); row(`sur_${di}_${s}`, [`+ ${o}`, ...t.map(neg)], '>=', -opt); }
+      if (t.length > opt) {
+        const o = `o_${di}_${s}`;
+        // pihenőnap nélkül a többlet szükségszerű: ott a két műszak közötti egyenletes elosztást büntetjük (a nagyobbikat)
+        if (allWork && SH.length > 1) row(`ob_${di}_${s}`, [`+ ob_${di}`, `- ${o}`], '>=', 0);
+        else obj.push([W.surplus, o]);
+        row(`sur_${di}_${s}`, [`+ ${o}`, ...t.map(neg)], '>=', -opt);
+      }
     }
+    if (allWork && SH.length > 1 && rows.some((r) => r.startsWith(` ob_${di}_`))) obj.push([W.surplus, `ob_${di}`]);
   });
 
   // heti blokkok, műszak-állandóság, széttöredezettség
@@ -72,11 +81,13 @@ export function buildModel(pr, W, avoid = [], minDiff = 0) {
       if (!F) return;
       const nT = ad.flatMap((d) => workTerms(wi, dIdx.get(d)));
       const z = `z_${wi}_${ki}`, dev = `dev_${wi}_${ki}`, a = `a_${wi}_${ki}`;
-      bins.push(z);
-      obj.push([W.block, dev]);
-      // dev ≥ F·z − n   és   dev ≥ n − F·z
-      row(`dv1_${wi}_${ki}`, [`+ ${dev}`, term(-F, z), ...nT], '>=', 0);
-      row(`dv2_${wi}_${ki}`, [`+ ${dev}`, term(F, z), ...nT.map(neg)], '>=', 0);
+      if (!allWork) {
+        bins.push(z);
+        obj.push([W.block, dev]);
+        // dev ≥ F·z − n   és   dev ≥ n − F·z
+        row(`dv1_${wi}_${ki}`, [`+ ${dev}`, term(-F, z), ...nT], '>=', 0);
+        row(`dv2_${wi}_${ki}`, [`+ ${dev}`, term(F, z), ...nT.map(neg)], '>=', 0);
+      }
       // a = 1: délelőttös hét. mDE ≥ nDE − F·a ; mDU ≥ nDU − F·(1−a)
       const twoShift = SH.length > 1;
       if (twoShift) bins.push(a);
@@ -88,6 +99,7 @@ export function buildModel(pr, W, avoid = [], minDiff = 0) {
           row(`sh1_${wi}_${ki}`, [`+ mde_${wi}_${ki}`, term(F, a), ...deT], '>=', 0);
           row(`sh2_${wi}_${ki}`, [`+ mdu_${wi}_${ki}`, term(-F, a), ...duT], '>=', -F);
         }
+        if (allWork) return;
         // szakaszkezdések: s_d ≥ work_d − work_előző elérhető nap
         const st = [];
         ad.forEach((d, j) => {
@@ -100,9 +112,11 @@ export function buildModel(pr, W, avoid = [], minDiff = 0) {
         row(`rn_${wi}_${ki}`, [`+ ${r}`, ...st], '>=', -1);
       }
     });
-    // arányos terhelés
-    const all = workdays.flatMap((d) => workTerms(wi, dIdx.get(d)));
-    const t = Math.round(target.get(w.id) * 100) / 100;
+    // arányos terhelés: pihenőnap nélkül a napszám adott, ott a délelőttök arányát egyenlítjük ki
+    if (allWork && SH.length < 2) return;
+    const all = allWork ? workdays.map((d) => X.get(`${wi}|${dIdx.get(d)}|DE`)).filter(Boolean).map((v) => `+ ${v}`) : workdays.flatMap((d) => workTerms(wi, dIdx.get(d)));
+    const nAv = workdays.filter((d) => avail.get(w.id).has(d) && locks[lockKey(w.id, d)] !== 'P').length;
+    const t = Math.round((allWork ? share * nAv : target.get(w.id)) * 100) / 100;
     obj.push([W.fair, `fp_${wi}`], [W.fair, `fn_${wi}`]);
     row(`fp_${wi}`, [`+ fp_${wi}`, ...all.map(neg)], '>=', -t);
     row(`fn_${wi}`, [`+ fn_${wi}`, ...all], '>=', t);
@@ -117,7 +131,10 @@ export function buildModel(pr, W, avoid = [], minDiff = 0) {
     const t = []; let n = 0;
     workers.forEach((w, wi) => workdays.forEach((d, di) => {
       if (locks[lockKey(w.id, d)]) return;
-      if (g?.[w.id]?.[d] && avail.get(w.id).has(d)) { t.push(...workTerms(wi, di)); n++; }
+      const code = g?.[w.id]?.[d];
+      if (!code || !avail.get(w.id).has(d)) return;
+      if (allWork) { if (SH.length < 2) return; const v = X.get(`${wi}|${di}|${code}`); if (v) { t.push(`+ ${v}`); n++; } }
+      else { t.push(...workTerms(wi, di)); n++; }
     }));
     if (n) row(`div_${ai}`, t, '<=', n - Math.max(1, Math.ceil(minDiff * n)));
   });
@@ -131,7 +148,7 @@ export function buildModel(pr, W, avoid = [], minDiff = 0) {
     ...rows.map((r) => { const m = r.match(/^( \w+: )(.*) (>=|<=|=) (-?[\d.]+)$/); if (!m) return r; return `${m[1]}${wrap(m[2].split(/ (?=[+-] )/))} ${m[3]} ${m[4]}`; }),
     'Bounds',
     ...bounds,
-    ...(workers.length ? [' fmax >= 0'] : []),
+    ...(workers.length && obj.some(([, v]) => v === 'fmax') ? [' fmax >= 0'] : []),
     'Binary',
     ...(bins.length ? [wrap(bins)] : []),
     'End',
