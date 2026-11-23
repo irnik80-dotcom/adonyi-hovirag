@@ -2,6 +2,7 @@
 // Titkok (wrangler secret put): ADMIN_PASSWORD, SESSION_SECRET
 
 import { NEVNAPOK } from './nevnapok.js';
+import { handleSummer } from './summer.js';
 import { SCHEMA, TEMPLATES_TABLE, DEFAULT_TEMPLATES, GROUPS_TABLE, DEFAULT_GROUPS } from './schema.js';
 
 const COOKIE = 'hovirag_session';
@@ -295,6 +296,9 @@ export default {
     const prevEnd = prevMonthEnd(today);
 
     try {
+      // Nyári beosztás: külön modul (src/summer.js)
+      if (path.startsWith('/api/summer/')) return await handleSummer(request, env, { path, method, json, fail, audit });
+
       if (path === '/api/workers' && method === 'GET') {
         const { results } = await env.DB.prepare(`${BALANCES} ORDER BY w.active DESC, w.name COLLATE NOCASE`).bind(today, prevEnd).all();
         const upcoming = (await env.DB.prepare(
