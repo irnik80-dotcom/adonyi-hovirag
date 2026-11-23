@@ -336,3 +336,41 @@ test('összes változat egy PDF-ben: változatonként havi oldalak, a fejlécben
   const pages = execFileSync('pdftotext', ['-layout', f, '-']).toString('utf8').split('\f'); fs.unlinkSync(f);
   assert.ok(pages[0].includes('1. Ajánlott') && pages[3].includes('2. Erős blokkok') && pages[6].includes('3. Egyenletes terhelés'));
 });
+
+test('pihenőnap nélküli mód (alapértelmezés): aki nincs távol, dolgozik; heti azonos műszak; kiegyenlített DE/DU arány', async () => {
+  assert.equal(M.newPlan(2027, GROUPS, makeWorkers()).mode, 'mindenki');
+  const plan = makePlan({ mode: 'mindenki' });
+  plan.absences.push(abs(100, '2027-07-05', '2027-07-16'), abs(101, '2027-07-07', '2027-07-08', 'beteg'), abs(115, '2027-08-02', '2027-08-04', 'pluszora'));
+  plan.roles[0].opt = { DE: 3, DU: 2, D: 0 };
+  const { cal, abs: am } = ctx(plan);
+  const alts = await generateAlternatives(getHighs, plan, cal, am, { count: 3, timeLimit: TL });
+  for (const a of alts) {
+    assert.ok(a.grid, a.notes.join());
+    const v = M.validate(plan, cal, am, { grid: a.grid });
+    assert.equal(v.errors.length, 0, JSON.stringify(v.errors.slice(0, 2)));
+    assert.equal(v.warnings.filter((w) => w.type === 'idle').length, 0, 'mindenki dolgozik, aki nincs távol');
+    for (const s of plan.staff.filter((x) => x.include)) for (const d of cal.workdays) {
+      assert.equal(Boolean(a.grid[s.id]?.[d]), !M.isAbsent(am, s.id, d), `${s.name} ${d}`);
+    }
+  }
+  const m = M.validate(plan, cal, am, { grid: alts[0].grid }).metrics;
+  assert.ok(m.shiftChanges <= 2, `műszakváltás: ${m.shiftChanges}`);
+  const m3 = M.validate(plan, cal, am, { grid: alts[2].grid }).metrics;
+  assert.ok(m3.deShareSpread <= 25, `DE-arány szórása: ${m3.deShareSpread}`);
+  // a pedagógusoknál a délelőtt-arány a tervezett 3:2 körül van
+  const ped = m.perWorker.filter((w) => w.group_id === 1);
+  const share = ped.reduce((a, w) => a + w.de, 0) / ped.reduce((a, w) => a + w.de + w.du, 0);
+  assert.ok(share > 0.5 && share < 0.7, `DE-arány: ${share}`);
+  // a változatok a műszakokban eltérnek
+  assert.ok(M.gridDiff(alts[0].grid, alts[1].grid) >= 10);
+  // egy nap kivétele → figyelmeztetés (nem hiba, ha a minimum megvan)
+  const g = structuredClone(alts[0].grid); const wid = 105; const d = Object.keys(g[wid])[0]; M.setCell(g, wid, d, null);
+  assert.ok(M.validate(plan, cal, am, { grid: g }).warnings.some((w) => w.type === 'idle' && w.worker_id === wid));
+});
+
+test('import: betegállomány és plusz órás szabadnap típus', () => {
+  const plan = makePlan();
+  const r = M.parseAbsenceRows([['Dolgozóazonosító', 'Szabadság kezdete', 'Szabadság vége', 'Típus'],
+    [100, '2027.07.05', '2027.07.05', 'betegállomány'], [101, '2027.07.06', '2027.07.06', 'plusz óra'], [102, '2027.07.07', '2027.07.07', 'Szabadnap plusz órából'], [103, '2027.07.08', '2027.07.08', 'szabadság'], [104, '2027.07.09', '2027.07.09', 'továbbképzés']], plan);
+  assert.deepEqual(r.records.map((x) => x.kind), ['beteg', 'pluszora', 'pluszora', 'szabadsag', 'egyeb']);
+});

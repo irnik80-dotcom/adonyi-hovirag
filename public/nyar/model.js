@@ -9,7 +9,10 @@ export const shiftsOf = (role) => (role?.single ? ['D'] : SHIFTS);
 export const minSum = (role, key = 'min') => shiftsOf(role).reduce((a, s) => a + (role[key]?.[s] ?? role.min[s] ?? 0), 0);
 export const WEEKDAY_SHORT = ['V', 'H', 'K', 'Sze', 'Cs', 'P', 'Szo'];
 export const MONTH_NAMES = ['január', 'február', 'március', 'április', 'május', 'június', 'július', 'augusztus', 'szeptember', 'október', 'november', 'december'];
-export const ABSENCE_KINDS = { szabadsag: 'Szabadság', egyeb: 'Egyéb távollét' };
+export const ABSENCE_KINDS = { szabadsag: 'Szabadság', beteg: 'Betegállomány', pluszora: 'Szabadnap plusz órából', egyeb: 'Egyéb távollét' };
+// Működési mód: 'mindenki' – aki nincs távol, dolgozik (nincs pihenőnap); 'pihenovel' – heti blokkok pihenőnapokkal
+export const MODES = { mindenki: 'Aki nincs távol, dolgozik (nincs pihenőnap)', pihenovel: 'Heti munkablokkok pihenőnapokkal' };
+export const allWork = (plan) => (plan.mode || 'mindenki') === 'mindenki';
 export const ABSENCE_STATUS = { igenyelt: 'Igényelt', jovahagyott: 'Jóváhagyott' };
 
 // A fő alkalmazás munkakör-csoportjainak alapértelmezett megfeleltetése és induló létszáma (4.1. pont, nem végleges).
@@ -21,8 +24,8 @@ const ROLE_PRESETS = [
 
 export const DEFAULT_SETTINGS = {
   alternatives: 3,
-  colors: { DE: '#FFE08A', DU: '#A9D3F5', D: '#F3C9A8', szabadsag: '#9FD89A', egyeb: '#D9C3F0', piheno: '#FFFFFF', hetvege: '#D6D6D6', zarva: '#BDBDBD' },
-  abbr: { DE: 'DE', DU: 'DU', D: 'D', szabadsag: 'SZ', egyeb: 'T', piheno: '', hetvege: '', zarva: 'Ü' },
+  colors: { DE: '#FFE08A', DU: '#A9D3F5', D: '#F3C9A8', szabadsag: '#9FD89A', beteg: '#F4A7A7', pluszora: '#B8E3E0', egyeb: '#D9C3F0', piheno: '#FFFFFF', hetvege: '#D6D6D6', zarva: '#BDBDBD' },
+  abbr: { DE: 'DE', DU: 'DU', D: 'D', szabadsag: 'SZ', beteg: 'B', pluszora: 'PL', egyeb: 'T', piheno: '', hetvege: '', zarva: 'Ü' },
   report: { title: 'Adonyi Hóvirág Óvoda', margin_mm: 5, show_counts: true, weekend_x: false, period_only: true },
 };
 
@@ -56,7 +59,8 @@ export function newPlan(year, groups, workers) {
     if (g) roles.push({ group_id: g.id, label: p.label, single: Boolean(p.single), min: { DE: 0, DU: 0, D: 0, ...p.min }, opt: { DE: 0, DU: 0, D: 0, ...p.min } });
   }
   return {
-    v: 1,
+    v: 2,
+    mode: 'mindenki',
     name: `Nyári beosztás ${y}`,
     period: { from, to },
     closed: [],
@@ -92,6 +96,7 @@ export function syncStaff(staff, roles, workers) {
 export function normalizePlan(p) {
   p.settings = { ...structuredClone(DEFAULT_SETTINGS), ...(p.settings || {}) };
   for (const k of ['colors', 'abbr', 'report']) p.settings[k] = { ...DEFAULT_SETTINGS[k], ...(p.settings[k] || {}) };
+  p.mode ||= 'mindenki';
   p.closed ||= []; p.absences ||= []; p.alternatives ||= []; p.approvals ||= {}; p.staff ||= []; p.roles ||= [];
   for (const r of p.roles) {
     r.min ||= { DE: 0, DU: 0 }; r.opt ||= { ...r.min };
@@ -189,7 +194,10 @@ export function roleProblem(plan, cal, absMap, role, locks = {}) {
   const target = new Map(workers.map((w) => [w.id, totalAvail ? (demand * avail.get(w.id).size) / totalAvail : 0]));
   const lk = {};
   for (const w of workers) for (const d of cal.workdays) { const v = locks[lockKey(w.id, d)]; if (v) lk[lockKey(w.id, d)] = v; }
-  return { role, workers, avail, target, demand, locks: lk, workdays: cal.workdays, weeks: cal.weeks };
+  // pihenőnap nélküli módban a napszám adott; a délelőttök arányát a tervezett létszám aránya adja
+  const oDE = role.opt?.DE ?? role.min.DE, oDU = role.opt?.DU ?? role.min.DU;
+  const share = oDE + oDU ? oDE / (oDE + oDU) : 0.5;
+  return { role, workers, avail, target, demand, locks: lk, workdays: cal.workdays, weeks: cal.weeks, allWork: allWork(plan), share };
 }
 
 // ---------- előzetes megvalósíthatósági ellenőrzés ----------
@@ -278,7 +286,13 @@ export function validate(plan, cal, absMap, schedule) {
   // elavult jóváhagyás (a többlet már nincs meg) – csak figyelmeztetés, nem törlünk automatikusan
   const surplusKeys = new Set(surplus.map((s) => s.key));
   const staleApprovals = Object.keys(approvals).filter((k) => !surplusKeys.has(k));
-  const unapproved = surplus.filter((s) => !s.approved);
+  const unapproved = allWork(plan) ? [] : surplus.filter((s) => !s.approved);
+  if (allWork(plan)) {
+    for (const { workers } of staffByRole(plan)) for (const w of workers) for (const d of cal.workdays) {
+      if (!grid[w.id]?.[d] && !isAbsent(absMap, w.id, d) && plan.locks?.[lockKey(w.id, d)] !== 'P')
+        warnings.push({ type: 'idle', date: d, worker: w.name, worker_id: w.id, msg: `${w.name}: ${dotted(d)} nem dolgozik, de nincs rögzített távolléte` });
+    }
+  }
   for (const s of unapproved) warnings.push({ type: 'surplus', ...s, msg: `${dotted(s.date)} ${SHIFT_LABEL[s.shift]}, ${s.role}: ${s.assigned} fő (${s.extra} fő többlet, nincs jóváhagyva)` });
   const m = metrics(plan, cal, absMap, grid);
   return { ok: errors.length === 0, errors, warnings, surplus, shortages, staleApprovals, counts, metrics: m };
@@ -310,12 +324,13 @@ export function metrics(plan, cal, absMap, grid) {
       for (const d of cal.workdays) { const v = grid?.[w.id]?.[d]; if (v && av.has(d)) { days++; if (v === 'DE') de++; else if (v === 'DU') du++; else dd++; } }
       const target = pr.target.get(w.id);
       devs.push(days - target);
-      perWorker.push({ id: w.id, name: w.name, role: role.label, group_id: role.group_id, available: av.size, days, de, du, d: dd, single: Boolean(role.single), target: Math.round(target * 10) / 10, weeks: worked, fullWeeks: full, shiftChanges: changes, isolated: iso });
+      perWorker.push({ id: w.id, name: w.name, role: role.label, group_id: role.group_id, available: av.size, days, de, du, d: dd, single: Boolean(role.single), deShare: de + du ? Math.round((100 * de) / (de + du)) : null, target: Math.round(target * 10) / 10, weeks: worked, fullWeeks: full, shiftChanges: changes, isolated: iso });
       blocksFull += full; blocksWorked += worked; shiftChanges += changes; isolated += iso;
     }
     const spread = devs.length ? Math.max(...devs) - Math.min(...devs) : 0;
     const maxDev = devs.length ? Math.max(...devs.map(Math.abs)) : 0;
-    perRole.push({ group_id: role.group_id, role: role.label, spread: Math.round(spread * 10) / 10, maxDev: Math.round(maxDev * 10) / 10 });
+    const shares = perWorker.filter((x) => x.group_id === role.group_id && x.deShare != null).map((x) => x.deShare);
+    perRole.push({ group_id: role.group_id, role: role.label, spread: Math.round(spread * 10) / 10, maxDev: Math.round(maxDev * 10) / 10, deShareSpread: shares.length && !role.single ? Math.max(...shares) - Math.min(...shares) : 0 });
   }
   let surplusCells = 0, surplusPersons = 0, approvedSurplus = 0;
   for (const { role, workers } of staffByRole(plan)) for (const d of cal.workdays) for (const sh of shiftsOf(role)) {
@@ -327,6 +342,7 @@ export function metrics(plan, cal, absMap, grid) {
     fullBlockRate: blocksWorked ? Math.round((1000 * blocksFull) / blocksWorked) / 10 : 100,
     blocksFull, blocksWorked, shiftChanges, isolated, surplusCells, surplusPersons, approvedSurplus,
     maxSpread: perRole.length ? Math.max(...perRole.map((r) => r.spread)) : 0,
+    deShareSpread: perRole.length ? Math.max(...perRole.map((r) => r.deShareSpread)) : 0,
     perRole, perWorker,
   };
 }
@@ -413,7 +429,9 @@ export function parseAbsenceRows(rows, plan) {
     if (to < plan.period.from || from > plan.period.to) issues.push({ row: rowNo, level: 'warning', msg: `${worker.name}: ${dotted(from)} – ${dotted(to)} teljesen a tervezési időszakon kívül esik, nem befolyásolja a beosztást.` });
     else if (from < plan.period.from || to > plan.period.to) issues.push({ row: rowNo, level: 'warning', msg: `${worker.name}: ${dotted(from)} – ${dotted(to)} részben az időszakon kívül esik, csak az időszakba eső napok számítanak.` });
     const k = norm(get('kind'));
-    const kind = !k || k.startsWith('szab') ? 'szabadsag' : 'egyeb';
+    const kind = !k || k === 'szabadsag' || k.startsWith('szabadsag') || k === 'sz' ? 'szabadsag'
+      : k.startsWith('beteg') || k === 'b' || k === 'tappenz' ? 'beteg'
+      : k.includes('plusz') || k.startsWith('szabadnap') || k === 'pl' ? 'pluszora' : 'egyeb';
     const st = norm(get('status'));
     const status = st.startsWith('jova') || st.startsWith('enged') ? 'jovahagyott' : 'igenyelt';
     if (st && !st.startsWith('jova') && !st.startsWith('enged') && !st.startsWith('igeny')) issues.push({ row: rowNo, level: 'warning', msg: `${worker.name}: ismeretlen státusz „${get('status')}”, igényeltként vettem fel.` });

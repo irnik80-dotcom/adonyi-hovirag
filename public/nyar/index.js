@@ -11,7 +11,7 @@ const TABS = [
   ['attekintes', 'Áttekintés'], ['beallitasok', 'Beállítások'], ['dolgozok', 'Dolgozók'], ['tavollet', 'Távollétek'],
   ['generalas', 'Generálás'], ['beosztas', 'Beosztás'], ['ellenorzes', 'Ellenőrzés'], ['nyomtatas', 'Nyomtatás'],
 ];
-const CODE_LABEL = { DE: 'Délelőtti műszak', DU: 'Délutáni műszak', D: 'Napi beosztás (egy műszakos munkakör)', szabadsag: 'Szabadság', egyeb: 'Egyéb távollét', piheno: 'Pihenőnap', hetvege: 'Hétvége', zarva: 'Ünnepnap / zárva' };
+const CODE_LABEL = { DE: 'Délelőtti műszak', DU: 'Délutáni műszak', D: 'Napi beosztás (egy műszakos munkakör)', szabadsag: 'Szabadság', beteg: 'Betegállomány', pluszora: 'Szabadnap plusz órából', egyeb: 'Egyéb távollét', piheno: 'Pihenőnap / nem dolgozik', hetvege: 'Hétvége', zarva: 'Ünnepnap / zárva' };
 
 function ensureCss() {
   if (document.getElementById('nyar-css')) return;
@@ -181,6 +181,9 @@ function tabSettings(el) {
       ${p.closed.map((c, i) => `<div class="set-item"><span>${M.dotted(c.date)} · ${esc(c.label || 'Zárva')}</span><button class="btn ghost small" data-delc="${i}" type="button">Törlés</button></div>`).join('')}
       <form id="cf" style="margin-top:8px"><div class="row"><input class="input" type="date" id="cd" min="${p.period.from}" max="${p.period.to}" required aria-label="Dátum"><input class="input" id="cl" maxlength="60" placeholder="Megnevezés (pl. nevelés nélküli munkanap)"></div><button class="btn small" type="submit" style="margin-top:8px">Zárva tartási nap hozzáadása</button></form>
       <p class="tabs-note">A törvényi ünnepeket és a fő alkalmazásban megadott speciális napokat automatikusan figyelembe veszi. Az itt megadott nap csak erre a tervre vonatkozik.</p></section>
+    <section class="field"><span class="label">Működés</span>
+      <select class="input" id="pm" aria-label="Működési mód">${Object.entries(M.MODES).map(([k, l]) => `<option value="${k}" ${(p.mode || 'mindenki') === k ? 'selected' : ''}>${l}</option>`).join('')}</select>
+      <p class="tabs-note">${M.allWork(p) ? 'Aki nincs szabadságon, betegállományban vagy plusz órából kivett szabadnapon, az dolgozik. Az app a délelőtt–délután elosztást tervezi, és ellenőrzi a minimumlétszámot. A <b>tervezett</b> létszámok aránya adja a délelőttök és délutánok kívánt arányát.' : 'A dolgozók heti blokkokban dolgoznak, közöttük pihenőnapokkal; az app a szükséges létszámot egyenletesen osztja szét.'}</p></section>
     <section class="field"><span class="label">Napi létszámigény (munkakörönként, műszakonként)</span>
       ${p.roles.map((r, i) => `<div class="ny-role">
         <div class="row"><input class="input" data-rl="${i}" value="${esc(r.label)}" maxlength="40" aria-label="Munkakör neve">
@@ -213,6 +216,7 @@ function tabSettings(el) {
     loadContext(planYears()).then(() => changed({ rerender: rerenderTab }));
   };
   $('pf').onchange = per; $('pt').onchange = per;
+  $('pm').onchange = (e) => { p.mode = e.target.value; changed({ rerender: rerenderTab }); };
   $('cf').onsubmit = (e) => { e.preventDefault(); const d = $('cd').value; if (!d) return; p.closed = p.closed.filter((c) => c.date !== d).concat({ date: d, label: $('cl').value.trim() }).sort((a, b) => a.date.localeCompare(b.date)); changed({ rerender: rerenderTab }); };
   el.querySelectorAll('[data-delc]').forEach((b) => (b.onclick = () => { p.closed.splice(+b.dataset.delc, 1); changed({ rerender: rerenderTab }); }));
   p.roles.forEach((r, i) => {
@@ -338,7 +342,7 @@ function tabAbsences(el) {
     <section class="field"><span class="label">Távollét kézi felvétele</span>
       <form id="af"><select class="input" id="aw" required aria-label="Dolgozó">${opts}</select>
         <div class="row" style="margin-top:8px"><input class="input" type="date" id="afr" required aria-label="Kezdete" min="${p.period.from}" max="${p.period.to}"><input class="input" type="date" id="ato" required aria-label="Vége" min="${p.period.from}" max="${p.period.to}"></div>
-        <div class="row" style="margin-top:8px"><select class="input" id="ak" aria-label="Típus"><option value="szabadsag">Szabadság</option><option value="egyeb">Egyéb távollét (pl. továbbképzés)</option></select><select class="input" id="as" aria-label="Státusz"><option value="igenyelt">Igényelt</option><option value="jovahagyott">Jóváhagyott</option></select></div>
+        <div class="row" style="margin-top:8px"><select class="input" id="ak" aria-label="Típus"><option value="szabadsag">Szabadság</option><option value="beteg">Betegállomány</option><option value="pluszora">Szabadnap plusz órából</option><option value="egyeb">Egyéb távollét (pl. továbbképzés)</option></select><select class="input" id="as" aria-label="Státusz"><option value="igenyelt">Igényelt</option><option value="jovahagyott">Jóváhagyott</option></select></div>
         <input class="input" id="an" maxlength="200" placeholder="Megjegyzés" style="margin-top:8px"><button class="btn small" type="submit" style="margin-top:8px">Hozzáadás</button></form></section>
     <section class="field"><span class="label">Rögzített távollétek (${p.absences.length})</span>
       ${p.absences.length ? `<button class="btn ghost small" id="adelall" type="button">Összes importált törlése</button>` : ''}
@@ -394,7 +398,7 @@ async function downloadTemplate() {
   for (const { role, workers } of M.staffByRole(p)) for (const w of workers) {
     const mine = p.absences.filter((a) => a.worker_id === w.id);
     if (!mine.length) rows.push([w.id, w.name, role.label, '', '', 'szabadság', 'igényelt', '']);
-    for (const a of mine) rows.push([w.id, w.name, role.label, D(a.from), D(a.to), a.kind === 'szabadsag' ? 'szabadság' : 'egyéb', a.status === 'jovahagyott' ? 'jóváhagyott' : 'igényelt', a.note || '']);
+    for (const a of mine) rows.push([w.id, w.name, role.label, D(a.from), D(a.to), ({ szabadsag: 'szabadság', beteg: 'betegállomány', pluszora: 'plusz óra' }[a.kind] || 'egyéb'), a.status === 'jovahagyott' ? 'jóváhagyott' : 'igényelt', a.note || '']);
   }
   const ws = XLSX.utils.aoa_to_sheet(rows, { cellDates: true, dateNF: 'yyyy-mm-dd' });
   ws['!cols'] = [{ wch: 16 }, { wch: 28 }, { wch: 22 }, { wch: 16 }, { wch: 16 }, { wch: 12 }, { wch: 13 }, { wch: 30 }];
@@ -402,7 +406,7 @@ async function downloadTemplate() {
     ['Kitöltési útmutató'],
     ['Minden távollét egy sor. Ha valakinek több szabadsága van, másold le a sorát.'],
     ['A dátumokat ÉÉÉÉ.HH.NN formában írd (pl. 2027.07.05). Egynapos szabadságnál a kezdet és a vége ugyanaz.'],
-    ['Típus: szabadság vagy egyéb (pl. továbbképzés). Státusz: igényelt vagy jóváhagyott.'],
+    ['Típus: szabadság, betegállomány, plusz óra (szabadnap plusz órából) vagy egyéb (pl. továbbképzés). Státusz: igényelt vagy jóváhagyott.'],
     ['Ha valakinek nincs szabadsága, a sor dátumait hagyd üresen – az ilyen sor nem hiba.'],
     ['A Dolgozóazonosító oszlopot ne módosítsd; ez köti a sort a dolgozóhoz.'],
     [`Tervezési időszak: ${M.dotted(p.period.from)} – ${M.dotted(p.period.to)}`],
@@ -432,6 +436,11 @@ function conflictHtml(conflicts) {
 function altMetricsHtml(a, best) {
   const m = a.metrics;
   const cls = (k, better) => (best && best[k] === m[k] && better ? 'best' : '');
+  if (a.mode === 'mindenki') return `<dl class="ny-met">
+    <div class="${cls('shiftChanges', true)}"><dt>Műszakváltás a héten belül</dt><dd>${m.shiftChanges}</dd></div>
+    <div class="${cls('deShareSpread', true)}"><dt>Délelőtt-arány eltérése a dolgozók között</dt><dd>${m.deShareSpread ?? '–'} %pont</dd></div>
+    <div><dt>Létszám a tervezett fölött (fő × műszak)</dt><dd>${m.surplusPersons}</dd></div>
+    ${m.diffFirst != null ? `<div><dt>Eltérés az 1. változattól</dt><dd>${m.diffFirst}%</dd></div>` : ''}</dl>`;
   return `<dl class="ny-met">
     <div class="${cls('fullBlockRate', true)}"><dt>Teljes heti blokk</dt><dd>${m.fullBlockRate}%</dd></div>
     <div class="${cls('shiftChanges', true)}"><dt>Műszakváltás a héten belül</dt><dd>${m.shiftChanges}</dd></div>
@@ -446,7 +455,7 @@ function tabGenerate(el) {
   const alts = p.alternatives.filter((a) => a.grid);
   const best = alts.length ? {
     fullBlockRate: Math.max(...alts.map((a) => a.metrics.fullBlockRate)), shiftChanges: Math.min(...alts.map((a) => a.metrics.shiftChanges)),
-    maxSpread: Math.min(...alts.map((a) => a.metrics.maxSpread)), isolated: Math.min(...alts.map((a) => a.metrics.isolated)), surplusPersons: Math.min(...alts.map((a) => a.metrics.surplusPersons)) } : null;
+    maxSpread: Math.min(...alts.map((a) => a.metrics.maxSpread)), isolated: Math.min(...alts.map((a) => a.metrics.isolated)), surplusPersons: Math.min(...alts.map((a) => a.metrics.surplusPersons)), deShareSpread: Math.min(...alts.map((a) => a.metrics.deShareSpread ?? 0)) } : null;
   const nLocks = Object.keys(p.locks).length;
   el.innerHTML = `
     ${conflicts.length ? conflictHtml(conflicts) : `<div class="ny-card ok">A minimumlétszám minden munkanapon biztosítható a megadott távollétek mellett.</div>`}
@@ -454,7 +463,8 @@ function tabGenerate(el) {
       <button class="btn" id="gen" type="button" ${conflicts.length || st.running ? 'disabled' : ''}>${st.running ? 'Számolás…' : `${p.settings.alternatives} változat generálása`}</button>
       ${p.alternatives.some((a) => a.grid) ? '<button class="btn ghost small" id="gpdf" type="button" style="margin-top:8px">Összes változat egy PDF-ben</button>' : ''}
       <div id="gprog" class="tabs-note">${st.running && st.progress ? esc(st.progress) : ''}</div>
-      <p class="tabs-note">Kötelező: minimumlétszám, távollétek, egy műszak naponta, saját munkakör${nLocks ? `, és a(z) <b>${nLocks} kézzel rögzített cella</b>` : ''}. Utána, fontossági sorrendben: ötnapos (hétfő–péntek) blokkok, azonos műszak a héten, a munkanapok arányos elosztása, kevés elszigetelt nap. Néhány tíz másodperc is lehet.</p></section>
+      <p class="tabs-note">Kötelező: minimumlétszám, távollétek, egy műszak naponta, saját munkakör${nLocks ? `, és a(z) <b>${nLocks} kézzel rögzített cella</b>` : ''}. ${M.allWork(p) ? ' Pihenőnap nélkül: aki nincs távol, dolgozik. Utána: azonos műszak a héten, a délelőttök és délutánok kiegyenlített aránya dolgozónként és naponta.' : ' Utána, fontossági sorrendben: ötnapos (hétfő–péntek) blokkok, azonos műszak a héten, a munkanapok arányos elosztása, kevés elszigetelt nap.'} Néhány tíz másodperc is lehet.</p></section>
+    ${p.alternatives.some((a) => a.grid && (a.mode || 'pihenovel') !== (p.mode || 'mindenki')) ? '<div class="ny-card warn">A változatok a másik működési móddal készültek. Generálj újra.</div>' : ''}
     ${stale() ? '<div class="ny-card warn">A változatok elkészülte óta megváltoztak a bemenetek (időszak, létszám, dolgozók vagy távollétek). Érdemes újragenerálni.</div>' : ''}
     ${p.alternatives.map((a, i) => a.grid ? `<article class="ny-alt ${p.selected === a.id ? 'sel' : ''}">
       <header><b>${i + 1}. ${esc(a.label)}</b>${p.selected === a.id ? '<span class="ny-badge ok">kiválasztva</span>' : ''}</header>
@@ -492,7 +502,8 @@ async function runGenerate(el) {
   const tick = setInterval(show, 1000); show();
   try {
     const perRole = await Promise.all(problems.map((pr, i) => solveInWorker(pr, profiles, (ai) => { prog[i] = ai; show(); }).then((r) => { prog[i] = profiles.length; show(); return r; })));
-    const alts = combine(profiles, perRole).map((a) => ({ ...a, id: M.uid(), created_at: new Date().toISOString() }));
+    const aw = M.allWork(p);
+    const alts = combine(profiles, perRole).map((a) => ({ ...a, label: aw ? PROFILES[a.profile].labelAll || a.label : a.label, desc: aw ? PROFILES[a.profile].descAll : a.desc, mode: p.mode, id: M.uid(), created_at: new Date().toISOString() }));
     const first = alts.find((a) => a.grid);
     for (const a of alts) if (a.grid) {
       const v = M.validate(p, st.cal, st.abs, { grid: a.grid });
@@ -614,7 +625,7 @@ function tabSchedule(el, q) {
   const nLocks = Object.keys(p.locks).length;
   el.innerHTML = `
     <div class="ny-status ${v.ok ? 'ok' : 'bad'}"><b>${v.ok ? '✓ Érvényes beosztás' : `✗ ${v.errors.length} hiba`}</b>
-      <span>${v.warnings.length ? `${v.warnings.length} jóvá nem hagyott többlet` : 'nincs jóváhagyásra váró többlet'}</span><a href="${BASE}/${st.id}?t=ellenorzes">Részletek</a></div>
+      <span>${v.warnings.length ? `${v.warnings.length} figyelmeztetés` : 'nincs figyelmeztetés'}</span><a href="${BASE}/${st.id}?t=ellenorzes">Részletek</a></div>
     ${chips}
     <p class="tabs-note ny-hint">Koppints egy cellára a módosításhoz. A módosított cella rögzített (●): újrageneráláskor is megmarad.</p>
     ${gridHtml(p, p.schedule.grid, month, { editable: true, counts: v.counts })}
@@ -633,7 +644,7 @@ function openCell(wid, date) {
   const a = st.abs.get(wid)?.get(date);
   const mates = M.staffByRole(p).find((g) => g.role.group_id === w.group_id).workers.filter((x) => x.id !== wid && !M.isAbsent(st.abs, x.id, date));
   const valOf = (id) => p.schedule.grid[id]?.[date] || 'P';
-  const lbl = { DE: 'Délelőtt', DU: 'Délután', D: 'Dolgozik', P: 'Pihenőnap' };
+  const lbl = { DE: 'Délelőtt', DU: 'Délután', D: 'Dolgozik', P: M.allWork(p) ? 'Nem dolgozik' : 'Pihenőnap' };
   const opts = [...M.shiftsOf(role), 'P'];
   const dlg = document.createElement('div');
   dlg.className = 'ny-sheet';
@@ -682,16 +693,18 @@ function tabCheck(el) {
       ${byType('shortage').map((s) => `<tr><td>${M.dotted(s.date)}</td><td>${M.SHIFT_LABEL[s.shift]}</td><td>${esc(s.role)}</td><td>${s.required}</td><td>${s.assigned}</td><td class="ny-red"><b>${s.missing}</b></td><td>${s.names.map(esc).join(', ') || '–'}</td></tr>`).join('')}</tbody></table></div></section>` : ''}
     ${byType('absent').length ? `<section class="field"><span class="label">Távollét napjára beosztva (${byType('absent').length})</span>${byType('absent').map((e) => `<div class="ny-conf">${esc(e.msg)}</div>`).join('')}</section>` : ''}
     ${others.length ? `<section class="field"><span class="label">Egyéb hiba</span>${others.map((e) => `<div class="ny-conf">${esc(e.msg)}</div>`).join('')}</section>` : ''}
-    <section class="field"><span class="label">Létszámtöbblet (${v.surplus.length})</span>
+    ${v.warnings.filter((w) => w.type === 'idle').length ? `<section class="field"><span class="label">Nem dolgozik, de nincs távolléte (${v.warnings.filter((w) => w.type === 'idle').length})</span>${v.warnings.filter((w) => w.type === 'idle').map((w) => `<div class="ny-conf" style="background:#FFF1CC;color:#6B4A00">${esc(w.msg)}</div>`).join('')}<p class="tabs-note">Ha ez szabadnap plusz órából, rögzítsd a Távollétek fülön; ha kézzel adtál pihenőnapot, az nem figyelmeztet.</p></section>` : ''}
+    <section class="field"><span class="label">${M.allWork(p) ? 'Létszám a tervezett fölött – tájékoztató' : 'Létszámtöbblet'} (${v.surplus.length})</span>
+      ${M.allWork(p) && v.surplus.length ? '<p class="tabs-note">Pihenőnap nélkül a tervezettnél több ember szükségszerűen dolgozik; jóváhagyni nem kötelező.</p>' : ''}
       ${v.surplus.length ? v.surplus.map((s) => `<div class="ny-sur ${s.approved ? 'ok' : ''}">
         <div><b>${M.dotted(s.date)} · ${M.SHIFT_LABEL[s.shift]} · ${esc(s.role)}</b><small>Tervezett ${s.required} fő, beosztva ${s.assigned} fő (+${s.extra}): ${s.names.map(esc).join(', ')}</small>
         ${s.approved ? `<small>Jóváhagyva${s.note ? ': ' + esc(s.note) : ''}</small>` : `<small class="tabs-note">${suggest(s)}</small>`}</div>
         ${s.approved ? `<button class="btn ghost small" type="button" data-unap="${esc(s.key)}">Visszavonás</button>` : `<div class="row ny-apr"><input class="input" data-note="${esc(s.key)}" maxlength="120" placeholder="Indoklás (nem kötelező)"><button class="btn small" type="button" data-ap="${esc(s.key)}">Jóváhagyom</button></div>`}</div>`).join('') : '<p class="tabs-note">Nincs többlet.</p>'}
       ${v.staleApprovals.length ? `<p class="tabs-note">${v.staleApprovals.length} korábbi jóváhagyás már nem tartozik többlethez (a beosztás változott). <button class="btn ghost small" id="clst" type="button">Ezek törlése</button></p>` : ''}</section>
     <section class="field"><span class="label">Dolgozónként</span>
-      <div class="ny-scroll"><table class="ny-tbl"><thead><tr><th>Dolgozó</th><th title="munkanapok a szabadság nélkül">Elérhető</th><th>Beosztva</th><th title="arányos cél az elérhető napok szerint">Cél</th><th>DE / DU</th><th title="teljes hetek / dolgozott hetek">Teljes hét</th><th>Műszakváltás</th><th title="1–2 napos szakasz">Elszigetelt</th></tr></thead><tbody>
+      <div class="ny-scroll"><table class="ny-tbl"><thead><tr><th>Dolgozó</th><th title="munkanapok a szabadság nélkül">Elérhető</th><th>Beosztva</th><th title="arányos cél az elérhető napok szerint">Cél</th><th title="délelőtt / délután (délelőtt-arány)">DE / DU</th><th title="teljes hetek / dolgozott hetek">Teljes hét</th><th>Műszakváltás</th><th title="1–2 napos szakasz">Elszigetelt</th></tr></thead><tbody>
       ${M.staffByRole(p).map(({ role, workers }) => `<tr class="grp"><th colspan="8">${esc(role.label)}</th></tr>${workers.map((w) => { const m = mw.find((x) => x.id === w.id) || {}; const d = Math.round((m.days - m.target) * 10) / 10;
-        return `<tr><td>${esc(w.name)}</td><td>${m.available}</td><td><b>${m.days}</b></td><td>${m.target} <small class="${Math.abs(d) >= 3 ? 'ny-red' : ''}">(${d > 0 ? '+' : ''}${d})</small></td><td>${m.single ? `${m.d} napi` : `${m.de} / ${m.du}`}</td><td>${m.fullWeeks} / ${m.weeks}</td><td class="${m.shiftChanges ? 'ny-warn' : ''}">${m.shiftChanges}</td><td class="${m.isolated ? 'ny-warn' : ''}">${m.isolated}</td></tr>`; }).join('')}`).join('')}
+        return `<tr><td>${esc(w.name)}</td><td>${m.available}</td><td><b>${m.days}</b></td><td>${m.target} <small class="${Math.abs(d) >= 3 ? 'ny-red' : ''}">(${d > 0 ? '+' : ''}${d})</small></td><td>${m.single ? `${m.d} napi` : `${m.de} / ${m.du}${m.deShare != null ? ` <small>(${m.deShare}%)</small>` : ''}`}</td><td>${m.fullWeeks} / ${m.weeks}</td><td class="${m.shiftChanges ? 'ny-warn' : ''}">${m.shiftChanges}</td><td class="${m.isolated ? 'ny-warn' : ''}">${m.isolated}</td></tr>`; }).join('')}`).join('')}
       </tbody></table></div>
       <p class="tabs-note">Teljes heti blokk: ${v.metrics.fullBlockRate}% · műszakváltás: ${v.metrics.shiftChanges} · elszigetelt nap: ${v.metrics.isolated}. A plusz-mínusz órákat ez az alkalmazás nem kezeli.</p></section>`;
   el.querySelectorAll('[data-ap]').forEach((b) => (b.onclick = () => { const k = b.dataset.ap; p.approvals[k] = { note: el.querySelector(`[data-note="${CSS.escape(k)}"]`).value.trim(), at: new Date().toISOString() }; changed({ rerender: rerenderTab }); }));
@@ -706,7 +719,7 @@ function tabPrint(el) {
   const v = st.val;
   el.innerHTML = `
     ${v.ok ? '' : `<div class="ny-card bad">A beosztás jelenleg <b>nem érvényes</b> (${v.errors.length} hiba). A PDF elkészíthető, de a lapon „NEM VÉGLEGES” jelzés lesz. <a href="${BASE}/${st.id}?t=ellenorzes">Hibák</a></div>`}
-    ${v.warnings.length ? `<div class="ny-card warn">${v.warnings.length} többlet nincs jóváhagyva. A PDF-en minden beosztott dolgozó szerepel.</div>` : ''}
+    ${v.warnings.length ? `<div class="ny-card warn">${v.warnings.length} figyelmeztetés van (pl. jóvá nem hagyott többlet vagy távollét nélküli szabad nap). A PDF-en minden beosztott dolgozó szerepel.</div>` : ''}
     <section class="field"><span class="label">A3 fekvő, havonta egy oldal</span>
       <button class="btn" id="pall" type="button">PDF letöltése (${st.cal.months.length} oldal)</button>
       <div class="ny-btns">${st.cal.months.map((m) => `<button class="btn ghost small" type="button" data-pm="${m.key}">${M.MONTH_NAMES[Number(m.key.slice(5)) - 1]}</button>`).join('')}</div>
