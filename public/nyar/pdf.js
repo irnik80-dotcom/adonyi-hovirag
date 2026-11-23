@@ -1,6 +1,6 @@
 // Havi A3 (fekvő) PDF a kiválasztott beosztásból. Minden hónap egy oldal, az összes dolgozóval.
 // A pdf-lib és a betűkészlet csak a PDF készítésekor töltődik be.
-import { staffByRole, WEEKDAY_SHORT, MONTH_NAMES, dotted, SHIFTS, approvalKey, isAbsent } from './model.js';
+import { staffByRole, WEEKDAY_SHORT, MONTH_NAMES, dotted, shiftsOf, SHIFT_LABEL, approvalKey } from './model.js';
 
 const MM = 72 / 25.4;
 const A3 = [420 * MM, 297 * MM];
@@ -74,7 +74,7 @@ export async function makePdf(plan, cal, abs, val, months, deps = null) {
 
     // méretek
     const headH = 26, legendH = 34, gap = 8;
-    const nRows = groups.reduce((a, g) => a + 1 + g.workers.length + (rep.show_counts ? 2 : 0), 0);
+    const nRows = groups.reduce((a, g) => a + 1 + g.workers.length + (rep.show_counts ? shiftsOf(g.role).length : 0), 0);
     const tableTop = top - 32;
     const availH = tableTop - headH - (bottom + legendH + gap);
     const rowH = Math.max(8, Math.min(22, availH / Math.max(1, nRows)));
@@ -125,10 +125,10 @@ export async function makePdf(plan, cal, abs, val, months, deps = null) {
         });
         hLines.push(y);
       }
-      if (rep.show_counts) for (const sh of SHIFTS) {
+      if (rep.show_counts) for (const sh of shiftsOf(role)) {
         y -= rowH;
         rect(left, y, right - left, rowH, rgb(0.97, 0.98, 0.97));
-        text(`${sh === 'DE' ? 'Délelőtt' : 'Délután'} (min. ${role.min[sh]})`, left + 4, y + rowH / 2 - fs / 2.8, fs - 1, F, grey);
+        text(`${SHIFT_LABEL[sh]} (min. ${role.min[sh]})`, left + 4, y + rowH / 2 - fs / 2.8, fs - 1, F, grey);
         days.forEach((d, i) => {
           if (!d.work) { rect(colX(i), y, colW, rowH, hex(rgb, d.outside ? '#F5F5F5' : d.weekend ? s.colors.hetvege : s.colors.zarva)); return; }
           const n = val.counts[`${d.date}|${sh}|${role.group_id}`] ?? 0;
@@ -153,7 +153,7 @@ export async function makePdf(plan, cal, abs, val, months, deps = null) {
     // jelmagyarázat
     let lx = left; const ly = Math.max(bottom + 14, tableBottom - gap - 16);
     text('Jelmagyarázat:', lx, ly + 4, 9, B); lx += B.widthOfTextAtSize('Jelmagyarázat:', 9) + 10;
-    const items = [['DE', 'Délelőtti műszak'], ['DU', 'Délutáni műszak'], ['szabadsag', 'Szabadság'], ['egyeb', 'Egyéb távollét'], ['piheno', 'Pihenőnap'], ['hetvege', 'Hétvége'], ['zarva', 'Ünnepnap / zárva']];
+    const items = [['DE', 'Délelőtti műszak'], ['DU', 'Délutáni műszak'], ...(groups.some((g) => g.role.single) ? [['D', 'Napi beosztás']] : []), ['szabadsag', 'Szabadság'], ['egyeb', 'Egyéb távollét'], ['piheno', 'Pihenőnap'], ['hetvege', 'Hétvége'], ['zarva', 'Ünnepnap / zárva']];
     for (const [k, label] of items) {
       const sw = 26, sh2 = 14;
       rect(lx, ly, sw, sh2, hex(rgb, s.colors[k]));

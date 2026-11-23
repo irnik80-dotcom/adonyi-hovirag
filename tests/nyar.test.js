@@ -56,7 +56,8 @@ test('naptár: hétvége és augusztus 20. nem munkanap, a hetek hétfőn kezdő
 test('a fő app munkakörei alapján jönnek létre a munkakörök, az „Egyéb” csoport kimarad', () => {
   const plan = makePlan();
   assert.deepEqual(plan.roles.map((r) => r.label), ['Óvodapedagógus', 'Pedagógiai asszisztens', 'Dajka']);
-  assert.deepEqual(plan.roles.map((r) => [r.min.DE, r.min.DU]), [[2, 1], [2, 1], [2, 2]]);
+  assert.deepEqual(plan.roles.map((r) => Boolean(r.single)), [false, true, false]);
+  assert.deepEqual(plan.roles.map((r) => M.shiftsOf(r).map((s) => r.min[s])), [[2, 1], [3], [2, 2]]);
   assert.equal(plan.staff.length, 23);
   assert.ok(!plan.staff.some((s) => s.name === 'Karbantartó'));
 });
@@ -126,12 +127,13 @@ test('5. létszámtöbblet: megjelenik a többlet és az érintett dolgozók nev
   const p = structuredClone(plan); p.schedule = { grid: structuredClone(alts[0].grid) };
   const d = '2027-06-22';
   const free = p.staff.filter((s) => s.group_id === 2 && !p.schedule.grid[s.id]?.[d]);
-  for (const s of free) M.setCell(p.schedule.grid, s.id, d, 'DE');
+  assert.ok(free.length > 0);
+  for (const s of free) M.setCell(p.schedule.grid, s.id, d, 'D');
   const v = M.validate(p, cal, am, p.schedule);
-  const sur = v.surplus.find((s) => s.date === d && s.shift === 'DE' && s.group_id === 2);
+  const sur = v.surplus.find((s) => s.date === d && s.shift === 'D' && s.group_id === 2);
   assert.ok(sur);
-  assert.equal(sur.required, 2);
-  assert.equal(sur.assigned, 2 + free.length);
+  assert.equal(sur.required, 3);
+  assert.equal(sur.assigned, 3 + free.length);
   assert.equal(sur.extra, free.length);
   for (const s of free) assert.ok(sur.names.includes(s.name));
   assert.ok(v.warnings.some((w) => w.type === 'surplus'));
@@ -298,4 +300,26 @@ test('beállítás: a létszámigény módosítható, a magasabb minimum hiányt
   p.roles[2].min.DU = 3; p.roles[2].opt.DU = 3;
   const v = M.validate(p, cal, am, { grid: alts[0].grid });
   assert.ok(v.errors.filter((e) => e.type === 'shortage' && e.group_id === 3).length >= 40);
+});
+
+test('egy műszakos munkakör (pedagógiai asszisztens): csak napi „D” beosztás, régi terv átalakítása', async () => {
+  const { alts, plan, cal, am } = await loaded;
+  const asz = plan.staff.filter((x) => x.group_id === 2).map((x) => x.id);
+  for (const a of alts) for (const id of asz) for (const v of Object.values(a.grid[id] || {})) assert.equal(v, 'D');
+  const v = M.validate(plan, cal, am, { grid: alts[0].grid });
+  for (const d of cal.workdays) assert.ok(v.counts[`${d}|D|2`] >= 3);
+  assert.equal(v.counts[`${cal.workdays[0]}|DE|2`], undefined);
+  // DE beírása egy egy műszakos dolgozónak → hiba
+  const g = structuredClone(alts[0].grid); M.setCell(g, asz[0], '2027-06-21', 'DE');
+  assert.ok(M.validate(plan, cal, am, { grid: g }).errors.some((e) => e.type === 'shift'));
+  // régi (1-es) terv: az asszisztens DE/DU beosztása D lesz, a minimum összeadódik
+  const old = makePlan();
+  for (const r of old.roles) { delete r.single; delete r.min.D; delete r.opt.D; }
+  old.roles[1].min = { DE: 2, DU: 1 }; old.roles[1].opt = { DE: 2, DU: 1 };
+  old.schedule = { grid: { 111: { '2027-06-21': 'DE' }, 100: { '2027-06-21': 'DU' } } }; old.locks = { '112|2027-06-22': 'DU' };
+  M.normalizePlan(old);
+  assert.equal(old.roles[1].single, true); assert.equal(old.roles[1].min.D, 3);
+  assert.equal(old.roles[0].single, false);
+  assert.equal(old.schedule.grid[111]['2027-06-21'], 'D'); assert.equal(old.schedule.grid[100]['2027-06-21'], 'DU');
+  assert.equal(old.locks['112|2027-06-22'], 'D');
 });

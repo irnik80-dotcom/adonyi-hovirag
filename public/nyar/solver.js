@@ -14,7 +14,7 @@
 //   - egy héten belüli több, széttört szakasz                      W.run
 //   - tervezett létszám feletti többlet                           W.surplus
 
-import { SHIFTS, roleProblem, lockKey } from './model.js';
+import { shiftsOf, roleProblem, lockKey } from './model.js';
 
 export const PROFILES = {
   ajanlott: { label: 'Ajánlott', desc: 'A fontossági sorrend szerint: ötnapos blokkok, azonos műszak a héten, majd a lehető legegyenletesebb terhelés, fölösleges többlet nélkül.',
@@ -29,6 +29,7 @@ export const PROFILE_ORDER = ['ajanlott', 'blokk', 'egyenletes'];
 // avoid: korábbi megoldások rácsa ({wid:{date:shift}}); minDiff: a korábbi munkanapok legalább ekkora hányada legyen más
 export function buildModel(pr, W, avoid = [], minDiff = 0) {
   const { workers, avail, target, workdays, weeks, role, locks } = pr;
+  const SH = shiftsOf(role);
   const obj = [];         // [coef, var]
   const rows = [];        // szöveges feltételek
   const bins = [], bounds = [];
@@ -43,18 +44,18 @@ export function buildModel(pr, W, avoid = [], minDiff = 0) {
       if (!avail.get(w.id).has(d)) continue;
       const di = dIdx.get(d);
       const lk = locks[lockKey(w.id, d)];
-      for (const s of SHIFTS) {
+      for (const s of SH) {
         const v = `x_${wi}_${di}_${s}`; X.set(`${wi}|${di}|${s}`, v); bins.push(v);
         if (lk) bounds.push(` ${v} = ${lk === s ? 1 : 0}`);
       }
-      row(`one_${wi}_${di}`, [`+ x_${wi}_${di}_DE`, `+ x_${wi}_${di}_DU`], '<=', 1);
+      if (SH.length > 1) row(`one_${wi}_${di}`, SH.map((s) => `+ x_${wi}_${di}_${s}`), '<=', 1);
     }
   });
-  const workTerms = (wi, di, c = 1) => SHIFTS.map((s) => X.get(`${wi}|${di}|${s}`)).filter(Boolean).map((v) => term(c, v));
+  const workTerms = (wi, di, c = 1) => SH.map((s) => X.get(`${wi}|${di}|${s}`)).filter(Boolean).map((v) => term(c, v));
 
   // létszám
   workdays.forEach((d, di) => {
-    for (const s of SHIFTS) {
+    for (const s of SH) {
       const t = workers.map((w, wi) => X.get(`${wi}|${di}|${s}`)).filter(Boolean).map((v) => `+ ${v}`);
       const min = role.min[s], opt = role.opt?.[s] ?? min;
       if (min > 0) row(`min_${di}_${s}`, t, '>=', min);
@@ -71,18 +72,22 @@ export function buildModel(pr, W, avoid = [], minDiff = 0) {
       if (!F) return;
       const nT = ad.flatMap((d) => workTerms(wi, dIdx.get(d)));
       const z = `z_${wi}_${ki}`, dev = `dev_${wi}_${ki}`, a = `a_${wi}_${ki}`;
-      bins.push(z, a);
+      bins.push(z);
       obj.push([W.block, dev]);
       // dev ≥ F·z − n   és   dev ≥ n − F·z
       row(`dv1_${wi}_${ki}`, [`+ ${dev}`, term(-F, z), ...nT], '>=', 0);
       row(`dv2_${wi}_${ki}`, [`+ ${dev}`, term(F, z), ...nT.map(neg)], '>=', 0);
       // a = 1: délelőttös hét. mDE ≥ nDE − F·a ; mDU ≥ nDU − F·(1−a)
-      const deT = ad.map((d) => X.get(`${wi}|${dIdx.get(d)}|DE`)).map((v) => `- ${v}`);
-      const duT = ad.map((d) => X.get(`${wi}|${dIdx.get(d)}|DU`)).map((v) => `- ${v}`);
+      const twoShift = SH.length > 1;
+      if (twoShift) bins.push(a);
+      const deT = !twoShift ? [] : ad.map((d) => X.get(`${wi}|${dIdx.get(d)}|DE`)).map((v) => `- ${v}`);
+      const duT = !twoShift ? [] : ad.map((d) => X.get(`${wi}|${dIdx.get(d)}|DU`)).map((v) => `- ${v}`);
       if (F > 1) {
-        obj.push([W.shift, `mde_${wi}_${ki}`], [W.shift, `mdu_${wi}_${ki}`]);
-        row(`sh1_${wi}_${ki}`, [`+ mde_${wi}_${ki}`, term(F, a), ...deT], '>=', 0);
-        row(`sh2_${wi}_${ki}`, [`+ mdu_${wi}_${ki}`, term(-F, a), ...duT], '>=', -F);
+        if (twoShift) {
+          obj.push([W.shift, `mde_${wi}_${ki}`], [W.shift, `mdu_${wi}_${ki}`]);
+          row(`sh1_${wi}_${ki}`, [`+ mde_${wi}_${ki}`, term(F, a), ...deT], '>=', 0);
+          row(`sh2_${wi}_${ki}`, [`+ mdu_${wi}_${ki}`, term(-F, a), ...duT], '>=', -F);
+        }
         // szakaszkezdések: s_d ≥ work_d − work_előző elérhető nap
         const st = [];
         ad.forEach((d, j) => {
@@ -138,7 +143,7 @@ export function extractGrid(pr, X, cols) {
   const grid = {};
   pr.workers.forEach((w, wi) => {
     pr.workdays.forEach((d, di) => {
-      for (const s of ['DE', 'DU']) {
+      for (const s of shiftsOf(pr.role)) {
         const v = X.get(`${wi}|${di}|${s}`);
         if (v && (cols[v]?.Primal ?? 0) > 0.5) { grid[w.id] ||= {}; grid[w.id][d] = s; }
       }
