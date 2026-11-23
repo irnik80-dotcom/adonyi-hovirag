@@ -136,9 +136,11 @@ export async function makePdf(plan, cal, abs, val, months, deps = null, sheets =
         days.forEach((d, i) => {
           if (!d.work) { rect(colX(i), y, colW, rowH, hex(rgb, d.outside ? '#F5F5F5' : d.weekend ? s.colors.hetvege : s.colors.zarva)); return; }
           const n = val.counts[`${d.date}|${sh}|${role.group_id}`] ?? 0;
-          const short = n < role.min[sh];
+          const c = val.counts[`cov|${d.date}|${sh}|${role.group_id}`] || 0;
+          const own = role.subBy != null ? Math.min(role.minOwn ?? 1, role.min[sh]) : 0;
+          const short = n + c < role.min[sh] || n < own;
           const over = n > (role.opt?.[sh] ?? role.min[sh]);
-          centered(over && plan.approvals[approvalKey(d.date, sh, role.group_id)] ? `${n}✓` : n, colX(i), colW, y + rowH / 2 - fs / 2.8, fs - 1, short || over ? B : F, short ? red : grey);
+          centered(`${n}${c ? '+' + c : ''}${over && plan.approvals[approvalKey(d.date, sh, role.group_id)] ? '✓' : ''}`, colX(i), colW, y + rowH / 2 - fs / 2.8, fs - 1, short || over ? B : F, short ? red : grey);
         });
         hLines.push(y);
       }

@@ -117,3 +117,4 @@
 .ny-role{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:10px 12px;margin-top:10px}
 .ny-role>.row .input{min-height:42px;padding:8px 10px}
 .ny-role .ny-tbl{margin-top:6px}
+.ny-grid tr.cnt td small{font-size:9px;font-weight:700;color:#7A4E8A;margin-left:1px}

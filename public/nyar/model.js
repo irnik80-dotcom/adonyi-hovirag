@@ -58,6 +58,7 @@ export function newPlan(year, groups, workers) {
     const g = groups.find((x) => p.match.test(x.name) && !(p.not && p.not.test(x.name)) && !roles.some((r) => r.group_id === x.id));
     if (g) roles.push({ group_id: g.id, label: p.label, single: Boolean(p.single), min: { DE: 0, DU: 0, D: 0, ...p.min }, opt: { DE: 0, DU: 0, D: 0, ...p.min } });
   }
+  defaultSubstitution(roles);
   return {
     v: 2,
     mode: 'mindenki',
@@ -93,6 +94,44 @@ export function syncStaff(staff, roles, workers) {
   return out;
 }
 
+// Helyettesítés: az óvónői létszámba a pedagógiai asszisztens is beleszámít (délelőtt és délután is),
+// de műszakonként legalább role.minOwn óvónőnek bent kell lennie. role.subBy: a helyettesítő munkakör group_id-ja.
+export function defaultSubstitution(roles) {
+  const asz = roles.find((r) => /asszisztens/i.test(r.label));
+  for (const r of roles) {
+    if (r.subBy !== undefined) continue;
+    r.subBy = asz && r !== asz && /pedag/i.test(r.label) && !/asszisztens/i.test(r.label) ? asz.group_id : null;
+    r.minOwn ??= 1;
+  }
+}
+// A helyettesítő munkakör napi jelenléte: Map(date -> { DE, DU }).
+// grid megadásakor a tényleges beosztásból; különben pihenőnap nélkül a jelenlévőkből, pihenőnapos módban a biztosan bent lévő minimumból.
+export function coverCount(plan, cal, absMap, role, locks = {}, grid = null) {
+  const out = new Map();
+  const sub = role.subBy != null && plan.roles.find((r) => r.group_id === role.subBy && r !== role);
+  if (!sub) return out;
+  const ws = staffByRole(plan).find((x) => x.role.group_id === sub.group_id)?.workers || [];
+  for (const d of cal.workdays) {
+    const c = { DE: 0, DU: 0 };
+    if (grid) {
+      for (const w of ws) { const v = grid[w.id]?.[d]; if (!v || isAbsent(absMap, w.id, d)) continue; if (v === 'D') { c.DE++; c.DU++; } else c[v]++; }
+    } else if (allWork(plan)) {
+      for (const w of ws) { if (isAbsent(absMap, w.id, d)) continue; const v = locks[lockKey(w.id, d)]; if (v === 'P') continue; if (sub.single || v === 'D') { c.DE++; c.DU++; } else if (v) c[v]++; }
+    } else {
+      const here = ws.filter((w) => !isAbsent(absMap, w.id, d)).length;
+      if (sub.single) c.DE = c.DU = Math.min(here, sub.min.D || 0); else { c.DE = Math.min(here, sub.min.DE || 0); c.DU = Math.min(here, sub.min.DU || 0); }
+    }
+    out.set(d, c);
+  }
+  return out;
+}
+// A munkakör tényleges minimuma egy napon, műszakonként (a helyettesítők levonásával, de legalább minOwn saját dolgozó)
+export function effMin(role, sh, cov) {
+  const min = role.min[sh] || 0;
+  if (role.subBy == null || !cov) return min;
+  return Math.max(Math.min(role.minOwn ?? 1, min), min - (cov[sh] || 0));
+}
+
 export function normalizePlan(p) {
   p.settings = { ...structuredClone(DEFAULT_SETTINGS), ...(p.settings || {}) };
   for (const k of ['colors', 'abbr', 'report']) p.settings[k] = { ...DEFAULT_SETTINGS[k], ...(p.settings[k] || {}) };
@@ -113,6 +152,7 @@ export function normalizePlan(p) {
     }
     r.min.D ??= 0; r.opt.D ??= r.min.D;
   }
+  defaultSubstitution(p.roles);
   return p;
 }
 
@@ -197,7 +237,10 @@ export function roleProblem(plan, cal, absMap, role, locks = {}) {
   // pihenőnap nélküli módban a napszám adott; a délelőttök arányát a tervezett létszám aránya adja
   const oDE = role.opt?.DE ?? role.min.DE, oDU = role.opt?.DU ?? role.min.DU;
   const share = oDE + oDU ? oDE / (oDE + oDU) : 0.5;
-  return { role, workers, avail, target, demand, locks: lk, workdays: cal.workdays, weeks: cal.weeks, allWork: allWork(plan), share };
+  const cov = coverCount(plan, cal, absMap, role, locks);
+  const minEff = {};
+  for (const d of cal.workdays) minEff[d] = Object.fromEntries(shiftsOf(role).map((sh) => [sh, effMin(role, sh, cov.get(d))]));
+  return { role, workers, avail, target, demand, locks: lk, workdays: cal.workdays, weeks: cal.weeks, allWork: allWork(plan), share, minEff };
 }
 
 // ---------- előzetes megvalósíthatósági ellenőrzés ----------
@@ -224,12 +267,14 @@ export function precheck(plan, cal, absMap, locks = {}) {
         if (!here) { const a = absMap.get(w.id)?.get(d); absent.push({ worker_id: w.id, name: w.name, absence: a }); continue; }
         if (v && v !== 'P' && locked[v] != null) locked[v]++; else if (!v) free++;
       }
-      const need = Object.fromEntries(shifts.map((x) => [x, Math.max(0, role.min[x] - locked[x])]));
+      const mins = pr.minEff[d];
+      const need = Object.fromEntries(shifts.map((x) => [x, Math.max(0, mins[x] - locked[x])]));
       const needSum = shifts.reduce((a, x) => a + need[x], 0);
       if (free < needSum) {
         const lockedSum = shifts.reduce((a, x) => a + locked[x], 0);
         conflicts.push({ type: 'shortage', date: d, role: role.label, group_id: role.group_id,
-          required: Object.fromEntries(shifts.map((x) => [x, role.min[x]])), available: free + lockedSum, locked,
+          required: Object.fromEntries(shifts.map((x) => [x, mins[x]])), available: free + lockedSum, locked,
+          covered: role.subBy != null ? Object.fromEntries(shifts.map((x) => [x, role.min[x] - mins[x]])) : null,
           missing: needSum - free,
           // kétműszakos munkakörnél a hiányt a délutánra írjuk, ha a délelőtt még kitölthető
           shifts: shifts.length === 1 ? shifts : free >= need.DE ? ['DU'] : (need.DU > 0 ? ['DE', 'DU'] : ['DE']),
@@ -265,16 +310,25 @@ export function validate(plan, cal, absMap, schedule) {
     }
   }
   for (const { role, workers } of staffByRole(plan)) {
+    const cov = coverCount(plan, cal, absMap, role, {}, grid);
+    const subName = role.subBy != null ? plan.roles.find((r) => r.group_id === role.subBy)?.label : null;
     for (const d of cal.workdays) {
       for (const sh of shiftsOf(role)) {
         const names = workers.filter((w) => grid[w.id]?.[d] === sh && !isAbsent(absMap, w.id, d)).map((w) => w.name);
         const n = names.length;
         counts[`${d}|${sh}|${role.group_id}`] = n;
+        const c = cov.get(d)?.[sh] || 0;
+        if (subName) counts[`cov|${d}|${sh}|${role.group_id}`] = c;
         const min = role.min[sh], opt = role.opt?.[sh] ?? min;
-        if (n < min) {
-          const rec = { date: d, shift: sh, role: role.label, group_id: role.group_id, required: min, assigned: n, missing: min - n, names };
+        const own = subName ? Math.min(role.minOwn ?? 1, min) : 0;
+        if (n + c < min || n < own) {
+          const short = Math.max(min - n - c, own - n);
+          const rec = { date: d, shift: sh, role: role.label, group_id: role.group_id, required: min, assigned: n, covered: c, missing: short, names };
           shortages.push(rec);
-          errors.push({ type: 'shortage', ...rec, msg: `${dotted(d)} ${SHIFT_LABEL[sh]}, ${role.label}: ${n} fő a szükséges ${min} helyett` });
+          const msg = n < own
+            ? `${dotted(d)} ${SHIFT_LABEL[sh]}, ${role.label}: nincs bent ${role.label.toLowerCase()} (legalább ${own} kell${c ? `, a(z) ${c} fő ${subName.toLowerCase()} nem pótolja` : ''})`
+            : `${dotted(d)} ${SHIFT_LABEL[sh]}, ${role.label}: ${n} fő${c ? ` + ${c} ${subName.toLowerCase()}` : ''} a szükséges ${min} helyett`;
+          errors.push({ type: 'shortage', ...rec, msg });
         } else if (n > opt) {
           const key = approvalKey(d, sh, role.group_id);
           const ap = approvals[key];

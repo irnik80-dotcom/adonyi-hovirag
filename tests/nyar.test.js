@@ -374,3 +374,31 @@ test('import: betegállomány és plusz órás szabadnap típus', () => {
     [100, '2027.07.05', '2027.07.05', 'betegállomány'], [101, '2027.07.06', '2027.07.06', 'plusz óra'], [102, '2027.07.07', '2027.07.07', 'Szabadnap plusz órából'], [103, '2027.07.08', '2027.07.08', 'szabadság'], [104, '2027.07.09', '2027.07.09', 'továbbképzés']], plan);
   assert.deepEqual(r.records.map((x) => x.kind), ['beteg', 'pluszora', 'pluszora', 'szabadsag', 'egyeb']);
 });
+
+test('helyettesítés: az asszisztens beszámít az óvónői létszámba, de műszakonként 1 óvónő kell', async () => {
+  const base = M.newPlan(2027, GROUPS, makeWorkers());
+  assert.equal(base.roles[0].subBy, 2); assert.equal(base.roles[0].minOwn, 1); assert.equal(base.roles[2].subBy, null);
+  // 11 pedagógusból 9 szabadságon egy héten → 2 óvónő marad a 2+1-es igényre; asszisztensek bent vannak
+  const plan = makePlan({ mode: 'mindenki', sub: true });
+  for (const id of [100, 101, 102, 103, 104, 105, 106, 107, 108]) plan.absences.push(abs(id, '2027-07-12', '2027-07-16'));
+  let { cal, abs: am } = ctx(plan);
+  assert.equal(M.precheck(plan, cal, am).length, 0, 'asszisztensekkel kijön');
+  const [a] = await generateAlternatives(getHighs, plan, cal, am, { count: 1, timeLimit: TL });
+  const v = M.validate(plan, cal, am, { grid: a.grid });
+  assert.equal(v.errors.length, 0, JSON.stringify(v.errors.slice(0, 2)));
+  assert.equal(v.counts['2027-07-12|DE|1'] + v.counts['2027-07-12|DU|1'], 2);
+  assert.ok(v.counts['2027-07-12|DE|1'] >= 1 && v.counts['2027-07-12|DU|1'] >= 1, 'mindkét műszakban van óvónő');
+  assert.ok(v.counts['cov|2027-07-12|DE|1'] >= 3);
+  // ha csak 1 óvónő marad: az egyik műszakban nincs óvónő → ütközés, akkor is, ha asszisztens van bőven
+  plan.absences.push(abs(109, '2027-07-12', '2027-07-16'));
+  ({ cal, abs: am } = ctx(plan));
+  const c = M.precheck(plan, cal, am).filter((x) => x.type === 'shortage' && x.group_id === 1);
+  assert.equal(c.length, 5);
+  assert.deepEqual(c[0].required, { DE: 1, DU: 1 });
+  // kézi beosztás: 0 óvónő délután, asszisztens van → hiba „nincs bent óvónő”
+  const g = structuredClone(a.grid);
+  for (const id of [109, 110]) M.setCell(g, id, '2027-07-12', 'DE');
+  const v2 = M.validate(makePlanWithAbs(plan, 100), cal, am, { grid: g });
+  assert.ok(v2.errors.some((e) => e.type === 'shortage' && e.shift === 'DU' && e.group_id === 1 && /nincs bent/.test(e.msg)));
+});
+function makePlanWithAbs(plan, _) { const p = structuredClone(plan); p.absences = p.absences.filter((x) => x.worker_id !== 109); return p; }

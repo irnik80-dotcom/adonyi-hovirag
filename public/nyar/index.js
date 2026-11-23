@@ -197,7 +197,10 @@ function tabSettings(el) {
         <select class="input" data-rs="${i}" aria-label="Műszakrend" style="margin-top:6px"><option value="2" ${r.single ? '' : 'selected'}>Két műszak: délelőtt + délután</option><option value="1" ${r.single ? 'selected' : ''}>Egy műszak (napi „${esc(s.abbr.D || 'D')}” beosztás)</option></select>
         <table class="ny-tbl ny-roles"><thead><tr><th></th><th>Minimum</th><th>Tervezett</th></tr></thead><tbody>
         ${M.shiftsOf(r).map((sh) => `<tr><td>${sh === 'D' ? 'Napi létszám' : M.SHIFT_LABEL[sh]}</td><td>${num(`m-${i}-${sh}`, r.min[sh] ?? 0)}</td><td>${num(`o-${i}-${sh}`, r.opt[sh] ?? r.min[sh] ?? 0)}</td></tr>`).join('')}
-        </tbody></table></div>`).join('')}
+        </tbody></table>
+        ${!r.single && p.roles.some((x) => x !== r) ? `<div class="row" style="margin-top:8px;align-items:center"><label class="ny-inl" for="sb-${i}">Helyettesítheti</label><select class="input" id="sb-${i}" data-sb="${i}"><option value="">senki</option>${p.roles.filter((x) => x !== r).map((x) => `<option value="${x.group_id}" ${r.subBy === x.group_id ? 'selected' : ''}>${esc(x.label)}</option>`).join('')}</select></div>
+        ${r.subBy != null ? `<div class="row" style="margin-top:8px;align-items:center"><label class="ny-inl" for="mo-${i}">Saját dolgozó műszakonként legalább</label><input class="input ny-num" type="number" min="0" max="10" id="mo-${i}" data-mo="${i}" value="${r.minOwn ?? 1}"></div>
+        <p class="tabs-note">A(z) ${esc(p.roles.find((x) => x.group_id === r.subBy)?.label || '')} a minimumba délelőtt és délután is beleszámít, de ${esc(r.label.toLowerCase())}ból műszakonként legalább ennyinek bent kell lennie.</p>` : ''}` : ''}</div>`).join('')}
       ${unused.length ? `<div class="row" style="margin-top:8px"><select class="input" id="ra">${unused.map((g) => `<option value="${g.id}">${esc(g.name)}</option>`).join('')}</select><button class="btn small ghost" id="rab" type="button">Munkakör hozzáadása</button></div>` : ''}
       <p class="tabs-note"><b>Minimum</b>: ez alatt a beosztás nem érvényes (kötelező feltétel). <b>Tervezett</b>: a megcélzott létszám; e fölött a beosztott fő <i>többlet</i>, amit jóvá lehet hagyni. A sorrend a riport csoportsorrendje.</p></section>
     <section class="field"><span class="label">Generálás</span>
@@ -235,6 +238,10 @@ function tabSettings(el) {
   p.roles.forEach((r, i) => {
     el.querySelector(`[data-rl="${i}"]`).oninput = (e) => { if (e.target.value.trim()) { r.label = e.target.value.trim(); changed(); } };
     let prev = { ...r.min };
+    const sbEl = el.querySelector(`[data-sb="${i}"]`);
+    if (sbEl) sbEl.onchange = (e) => { r.subBy = e.target.value ? Number(e.target.value) : null; changed({ rerender: rerenderTab }); };
+    const moEl = el.querySelector(`[data-mo="${i}"]`);
+    if (moEl) moEl.oninput = moEl.onchange = (e) => { if (e.target.value === '') return; r.minOwn = Math.max(0, Math.min(10, Math.trunc(Number(e.target.value) || 0))); changed(); };
     el.querySelector(`[data-rs="${i}"]`).onchange = (e) => { setSingle(p, r, e.target.value === '1'); changed({ rerender: rerenderTab }); };
     for (const [id, a, k] of M.shiftsOf(r).flatMap((sh) => [[`m-${i}-${sh}`, 'min', sh], [`o-${i}-${sh}`, 'opt', sh]])) {
       const optEl = $(`o-${i}-${k}`);
@@ -443,7 +450,7 @@ function conflictHtml(conflicts) {
     ${locks.map((c) => `<div class="ny-conf"><b>${M.dotted(c.date)} · ${esc(c.worker)}</b>: kézzel rögzített ${(M.SHIFT_LABEL[c.shift] || c.shift).toLowerCase()} műszak, de távollét van erre a napra. Oldd fel a rögzítést vagy módosítsd a távollétet.</div>`).join('')}
     ${conflicts.filter((c) => c.type === 'lock_shift').map((c) => `<div class="ny-conf"><b>${M.dotted(c.date)} · ${esc(c.worker)}</b>: a rögzített „${esc(c.shift)}” műszak nem létezik a(z) ${esc(c.role)} munkakörben. Oldd fel a rögzítést.</div>`).join('')}
     ${short.length ? `<div class="ny-scroll"><table class="ny-tbl"><thead><tr><th>Dátum</th><th>Műszak</th><th>Munkakör</th><th>Szükséges</th><th>Rendelkezésre áll</th><th>Hiány</th><th>Távollévők (ütköző távollét)</th></tr></thead><tbody>
-      ${short.map((c) => `<tr><td>${M.dotted(c.date)}<br><small>${M.WEEKDAY_SHORT[M.dowOf(c.date)]}</small></td><td>${c.shifts.map((s) => M.SHIFT_LABEL[s]).join(', ')}</td><td>${esc(c.role)}</td><td>${Object.entries(c.required).map(([k, v]) => `${k} ${v}`).join(' + ')}</td><td>${c.available} fő</td><td class="ny-red"><b>${c.missing} fő</b></td>
+      ${short.map((c) => `<tr><td>${M.dotted(c.date)}<br><small>${M.WEEKDAY_SHORT[M.dowOf(c.date)]}</small></td><td>${c.shifts.map((s) => M.SHIFT_LABEL[s]).join(', ')}</td><td>${esc(c.role)}</td><td>${Object.entries(c.required).map(([k, v]) => `${k} ${v}`).join(' + ')}${c.covered && Object.values(c.covered).some(Boolean) ? `<br><small>helyettesítőkkel együtt: ${Object.entries(c.covered).map(([k, v]) => `${k} ${v + c.required[k]}`).join(' + ')}</small>` : ''}</td><td>${c.available} fő</td><td class="ny-red"><b>${c.missing} fő</b></td>
         <td>${c.absent.map((a) => `${esc(a.name)} <small>(${a.kind ? M.ABSENCE_KINDS[a.kind].toLowerCase() : 'távol'}${a.from ? ` ${M.shortHu(a.from)}–${M.shortHu(a.to)}` : ''}${a.status ? ', ' + M.ABSENCE_STATUS[a.status].toLowerCase() : ''})</small>`).join('<br>') || '–'}</td></tr>`).join('')}</tbody></table></div>` : ''}`;
 }
 function altMetricsHtml(a, best) {
@@ -605,8 +612,10 @@ function gridHtml(p, grid, month, { editable, counts }) {
       ${counts ? M.shiftsOf(role).map((sh) => `<tr class="cnt"><th class="nm">${M.SHIFT_LABEL[sh]} (min. ${role.min[sh]})</th>${days.map((d) => {
         if (!d.work) return '<td class="we"></td>';
         const n = cnt(role.group_id, d.date, sh); const opt = role.opt[sh];
+        const c = counts?.[`cov|${d.date}|${sh}|${role.group_id}`] || 0;
+        const own = role.subBy != null ? Math.min(role.minOwn ?? 1, role.min[sh]) : 0;
         const ap = p.approvals[M.approvalKey(d.date, sh, role.group_id)];
-        return `<td class="${n < role.min[sh] ? 'short' : n > opt ? (ap ? 'apr' : 'over') : ''}">${n}</td>`;
+        return `<td class="${n + c < role.min[sh] || n < own ? 'short' : n > opt ? (ap ? 'apr' : 'over') : ''}" ${c ? `title="${n} saját + ${c} helyettesítő"` : ''}>${n}${c ? `<small>+${c}</small>` : ''}</td>`;
       }).join('')}</tr>`).join('') : ''}`).join('')}</tbody></table></div>`;
 }
 function legendHtml(p) {
