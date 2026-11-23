@@ -267,6 +267,10 @@ test('import: hibás dátum, ismeretlen azonosító, hiányzó mező, duplikáci
   assert.deepEqual(r.records.map((x) => [x.worker_id, x.from, x.to]), [[100, '2027-07-05', '2027-07-09'], [102, '2027-07-26', '2027-07-30'], [103, '2027-06-28', '2027-06-28'], [105, '2027-09-01', '2027-09-05']]);
   assert.equal(r.records[0].status, 'jovahagyott');
   assert.equal(r.records[1].status, 'igenyelt');
+  // névegyeztetés: kötőjel, pont, dupla szóköz nem számít
+  const p2 = makePlan(); p2.staff.find((x) => x.id === 100).name = 'Kárászné Ihos Krisztina';
+  const r2 = M.parseAbsenceRows([['Dolgozó neve', 'Szabadság kezdete', 'Szabadság vége'], ['Kárászné-Ihos  Krisztina', '2027.07.05', '2027.07.05']], p2);
+  assert.equal(r2.records[0]?.worker_id, 100);
   // hiányzó oszlop
   const bad = M.parseAbsenceRows([['Név', 'Kezdete']], plan);
   assert.ok(bad.issues.some((i) => /Vége|vége/.test(i.msg)));

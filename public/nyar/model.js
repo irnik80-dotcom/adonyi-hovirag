@@ -33,6 +33,8 @@ export function eachDate(from, to) { const out = []; for (let d = from; d <= to;
 export const dotted = (s) => `${s.slice(0, 4)}. ${s.slice(5, 7)}. ${s.slice(8, 10)}.`;
 export const shortHu = (s) => `${MONTH_NAMES[Number(s.slice(5, 7)) - 1].slice(0, 3)}. ${Number(s.slice(8, 10))}.`;
 export const monthLabel = (key) => `${key.slice(0, 4)}. ${MONTH_NAMES[Number(key.slice(5, 7)) - 1]}`;
+// névegyeztetéshez: kis-nagybetű, ékezet, kötőjel, pont és szóköz-eltérés nem számít
+export const nameKey = (s) => norm(s).replace(/[.\-–,]/g, ' ').replace(/\s+/g, ' ').trim();
 export const norm = (s) => String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
 
 // ---------- új terv ----------
@@ -354,7 +356,7 @@ export function parseAbsenceRows(rows, plan) {
   if (issues.length) return { records, issues, columns: col };
   const byId = new Map(plan.staff.map((s) => [s.id, s]));
   const byName = new Map();
-  for (const s of plan.staff) { const k = norm(s.name); byName.set(k, byName.has(k) ? 'dup' : s); }
+  for (const s of plan.staff) { const k = nameKey(s.name); byName.set(k, byName.has(k) ? 'dup' : s); }
   const seen = new Map();
   for (let i = hi + 1; i < rows.length; i++) {
     const r = rows[i] || [];
@@ -372,9 +374,9 @@ export function parseAbsenceRows(rows, plan) {
       const idNum = Number(rawId);
       worker = Number.isInteger(idNum) ? byId.get(idNum) : null;
       if (!worker) { issues.push({ row: rowNo, level: 'error', msg: `Ismeretlen dolgozóazonosító: „${rawId}”${rawName ? ` (${rawName})` : ''}` }); continue; }
-      if (rawName && norm(rawName) !== norm(worker.name)) issues.push({ row: rowNo, level: 'warning', msg: `Az azonosító (${rawId}) ${worker.name} dolgozóé, de a sorban „${rawName}” szerepel. Az azonosító alapján vettem fel.` });
+      if (rawName && nameKey(rawName) !== nameKey(worker.name)) issues.push({ row: rowNo, level: 'warning', msg: `Az azonosító (${rawId}) ${worker.name} dolgozóé, de a sorban „${rawName}” szerepel. Az azonosító alapján vettem fel.` });
     } else if (rawName) {
-      const hit = byName.get(norm(rawName));
+      const hit = byName.get(nameKey(rawName));
       if (hit === 'dup') { issues.push({ row: rowNo, level: 'error', msg: `„${rawName}” név többször szerepel a dolgozók között, adj meg azonosítót.` }); continue; }
       if (!hit) { issues.push({ row: rowNo, level: 'error', msg: `Ismeretlen dolgozó: „${rawName}”` }); continue; }
       worker = hit;
