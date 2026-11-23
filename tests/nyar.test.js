@@ -402,3 +402,34 @@ test('helyettesítés: az asszisztens beszámít az óvónői létszámba, de m�
   assert.ok(v2.errors.some((e) => e.type === 'shortage' && e.shift === 'DU' && e.group_id === 1 && /nincs bent/.test(e.msg)));
 });
 function makePlanWithAbs(plan, _) { const p = structuredClone(plan); p.absences = p.absences.filter((x) => x.worker_id !== 109); return p; }
+
+test('gyereklétszám: csoportszám (50 → 2, 52 → 3) és a belőle adódó napi minimum', async () => {
+  const plan = makePlan({ mode: 'mindenki', sub: true });
+  assert.equal(plan.settings.groupMax, 25);
+  assert.deepEqual(plan.roles.map((r) => r.groupsPer), [1, 0, 2]);
+  plan.children['2027-06-21'] = 50; plan.children['2027-06-28'] = 52; plan.children['2027-07-05'] = 80;
+  assert.equal(M.groupsOn(plan, '2027-06-23'), 2);
+  assert.equal(M.groupsOn(plan, '2027-07-01'), 3);
+  assert.equal(M.groupsOn(plan, '2027-07-12'), null);
+  const [ped, asz, daj] = plan.roles;
+  assert.equal(M.dayMin(plan, ped, 'DE', '2027-06-29'), 3);
+  assert.equal(M.dayMin(plan, ped, 'DU', '2027-06-29'), 3);
+  assert.equal(M.dayMin(plan, daj, 'DE', '2027-06-29'), 2);  // 3 csoport, 1 dajka 2 csoportot lát el
+  assert.equal(M.dayMin(plan, daj, 'DU', '2027-06-22'), 2);  // 2 csoport → 1, de a fix minimum 2
+  assert.equal(M.dayMin(plan, asz, 'D', '2027-06-29'), 3);   // asszisztens: fix
+  assert.equal(M.dayMin(plan, ped, 'DU', '2027-07-12'), 1);  // nincs megadva → fix minimum
+  // 80 gyerek → 4 csoport → 4 óvónő DE + 4 DU kellene; 6 pedagógus szabadságon → 5 + 4 asszisztens
+  for (const id of [100, 101, 102, 103, 104, 105]) plan.absences.push(abs(id, '2027-07-05', '2027-07-09'));
+  const { cal, abs: am } = ctx(plan);
+  assert.equal(M.precheck(plan, cal, am).filter((c) => c.group_id === 1).length, 0, '5 óvónő + 4 asszisztens elég a 4+4-hez');
+  const [a] = await generateAlternatives(getHighs, plan, cal, am, { count: 1, timeLimit: TL });
+  const v = M.validate(plan, cal, am, { grid: a.grid });
+  assert.equal(v.errors.length, 0, JSON.stringify(v.errors.slice(0, 2)));
+  assert.equal(v.counts['min|2027-07-06|DE|1'], 4);
+  for (const sh of ['DE', 'DU']) assert.ok(v.counts[`2027-07-06|${sh}|1`] + v.counts[`cov|2027-07-06|${sh}|1`] >= 4);
+  // 260 gyerek → 11 csoport: DE és DU is 11 − 4 asszisztens = 7 óvónő kellene, csak 5 van → ütközés
+  plan.children['2027-07-05'] = 260;
+  const c = M.precheck(plan, cal, am).filter((x) => x.group_id === 1);
+  assert.equal(c.length, 5);
+  assert.equal(c[0].groups, 11);
+});

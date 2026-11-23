@@ -118,3 +118,6 @@
 .ny-role>.row .input{min-height:42px;padding:8px 10px}
 .ny-role .ny-tbl{margin-top:6px}
 .ny-grid tr.cnt td small{font-size:9px;font-weight:700;color:#7A4E8A;margin-left:1px}
+.ny-kids{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;margin-top:8px}
+.ny-kid{display:grid;grid-template-columns:1fr auto;gap:2px 8px;align-items:center;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:8px 10px;font-size:13px}
+.ny-kid em{grid-column:1/-1;font-style:normal;font-size:12px;color:var(--ink-2);min-height:14px}

@@ -198,11 +198,16 @@ function tabSettings(el) {
         <table class="ny-tbl ny-roles"><thead><tr><th></th><th>Minimum</th><th>Tervezett</th></tr></thead><tbody>
         ${M.shiftsOf(r).map((sh) => `<tr><td>${sh === 'D' ? 'Napi létszám' : M.SHIFT_LABEL[sh]}</td><td>${num(`m-${i}-${sh}`, r.min[sh] ?? 0)}</td><td>${num(`o-${i}-${sh}`, r.opt[sh] ?? r.min[sh] ?? 0)}</td></tr>`).join('')}
         </tbody></table>
+        ${!r.single ? `<div class="row" style="margin-top:8px;align-items:center"><label class="ny-inl" for="gp-${i}">Egy dolgozó műszakonként ennyi csoportot lát el (0: nem függ a csoportoktól)</label><input class="input ny-num" type="number" min="0" max="10" id="gp-${i}" data-gp="${i}" value="${r.groupsPer ?? 0}"></div>` : ''}
         ${!r.single && p.roles.some((x) => x !== r) ? `<div class="row" style="margin-top:8px;align-items:center"><label class="ny-inl" for="sb-${i}">Helyettesítheti</label><select class="input" id="sb-${i}" data-sb="${i}"><option value="">senki</option>${p.roles.filter((x) => x !== r).map((x) => `<option value="${x.group_id}" ${r.subBy === x.group_id ? 'selected' : ''}>${esc(x.label)}</option>`).join('')}</select></div>
         ${r.subBy != null ? `<div class="row" style="margin-top:8px;align-items:center"><label class="ny-inl" for="mo-${i}">Saját dolgozó műszakonként legalább</label><input class="input ny-num" type="number" min="0" max="10" id="mo-${i}" data-mo="${i}" value="${r.minOwn ?? 1}"></div>
         <p class="tabs-note">A(z) ${esc(p.roles.find((x) => x.group_id === r.subBy)?.label || '')} a minimumba délelőtt és délután is beleszámít, de ${esc(r.label.toLowerCase())}ból műszakonként legalább ennyinek bent kell lennie.</p>` : ''}` : ''}</div>`).join('')}
       ${unused.length ? `<div class="row" style="margin-top:8px"><select class="input" id="ra">${unused.map((g) => `<option value="${g.id}">${esc(g.name)}</option>`).join('')}</select><button class="btn small ghost" id="rab" type="button">Munkakör hozzáadása</button></div>` : ''}
       <p class="tabs-note"><b>Minimum</b>: ez alatt a beosztás nem érvényes (kötelező feltétel). <b>Tervezett</b>: a megcélzott létszám; e fölött a beosztott fő <i>többlet</i>, amit jóvá lehet hagyni. A sorrend a riport csoportsorrendje.</p></section>
+    <section class="field"><span class="label">Várható gyereklétszám hetente</span>
+      <div class="row" style="align-items:center"><label class="ny-inl" for="gm">Egy csoportba legfeljebb (gyerek)</label><input class="input ny-num" type="number" id="gm" min="5" max="40" value="${s.groupMax}"></div>
+      <div class="ny-kids">${st.cal.weeks.map((w) => { const n = p.children[w.key]; const g = M.groupsOn(p, w.key); return `<label class="ny-kid"><span>${M.shortHu(w.days[0])}–${M.shortHu(w.days.at(-1))}</span><input class="input ny-num" type="number" min="0" max="300" data-kid="${w.key}" value="${n ?? ''}" placeholder="–" aria-label="Gyerekek ${M.dotted(w.key)} hetében"><em data-kg="${w.key}">${g ? `${g} csoport` : ''}</em></label>`; }).join('')}</div>
+      <p class="tabs-note">Csoportok = gyerekek ÷ csoportméret, felfelé kerekítve. A napi minimum munkakörönként a csoportokból adódik (pl. 3 csoport → 3 óvónő délelőtt és 3 délután, 2 dajka műszakonként, ha egy dajka 2 csoportot lát el), de legalább a fenti fix minimum. Ahol nincs megadva szám, a fix minimum érvényes.</p></section>
     <section class="field"><span class="label">Generálás</span>
       <div class="row"><label class="ny-inl" for="na">Alternatívák száma</label><input class="input ny-num" type="number" id="na" min="1" max="5" value="${s.alternatives}"></div></section>
     <section class="field"><span class="label">Jelölések (képernyő és PDF)</span>
@@ -238,6 +243,8 @@ function tabSettings(el) {
   p.roles.forEach((r, i) => {
     el.querySelector(`[data-rl="${i}"]`).oninput = (e) => { if (e.target.value.trim()) { r.label = e.target.value.trim(); changed(); } };
     let prev = { ...r.min };
+    const gpEl = el.querySelector(`[data-gp="${i}"]`);
+    if (gpEl) gpEl.oninput = gpEl.onchange = (e) => { if (e.target.value === '') return; r.groupsPer = Math.max(0, Math.min(10, Math.trunc(Number(e.target.value) || 0))); changed(); };
     const sbEl = el.querySelector(`[data-sb="${i}"]`);
     if (sbEl) sbEl.onchange = (e) => { r.subBy = e.target.value ? Number(e.target.value) : null; changed({ rerender: rerenderTab }); };
     const moEl = el.querySelector(`[data-mo="${i}"]`);
@@ -274,6 +281,13 @@ function tabSettings(el) {
     p.roles.push({ group_id: g.id, label: g.name, single: false, min: { DE: 1, DU: 1, D: 2 }, opt: { DE: 1, DU: 1, D: 2 } });
     p.staff = M.syncStaff(p.staff, p.roles, st.ctx.workers); changed({ rerender: rerenderTab });
   };
+  $('gm').oninput = (e) => { if (!e.target.value) return; s.groupMax = Math.max(5, Math.min(40, Math.trunc(Number(e.target.value) || 25))); changed(); el.querySelectorAll('[data-kg]').forEach((x) => { const g = M.groupsOn(p, x.dataset.kg); x.textContent = g ? `${g} csoport` : ''; }); };
+  el.querySelectorAll('[data-kid]').forEach((inp) => (inp.oninput = () => {
+    const v = Math.trunc(Number(inp.value));
+    if (inp.value === '' || !v) delete p.children[inp.dataset.kid]; else p.children[inp.dataset.kid] = Math.max(0, Math.min(300, v));
+    const g = M.groupsOn(p, inp.dataset.kid); el.querySelector(`[data-kg="${inp.dataset.kid}"]`).textContent = g ? `${g} csoport` : '';
+    changed();
+  }));
   $('na').oninput = $('na').onchange = (e) => { s.alternatives = Math.max(1, Math.min(5, Math.trunc(Number(e.target.value) || 3))); changed(); };
   const sw = (k) => el.querySelector(`[data-col="${k}"]`).closest('.ny-code').querySelector('.ny-sw');
   el.querySelectorAll('[data-col]').forEach((i) => (i.oninput = i.onchange = () => { s.colors[i.dataset.col] = i.value; sw(i.dataset.col).style.background = i.value; changed(); }));
@@ -450,7 +464,7 @@ function conflictHtml(conflicts) {
     ${locks.map((c) => `<div class="ny-conf"><b>${M.dotted(c.date)} · ${esc(c.worker)}</b>: kézzel rögzített ${(M.SHIFT_LABEL[c.shift] || c.shift).toLowerCase()} műszak, de távollét van erre a napra. Oldd fel a rögzítést vagy módosítsd a távollétet.</div>`).join('')}
     ${conflicts.filter((c) => c.type === 'lock_shift').map((c) => `<div class="ny-conf"><b>${M.dotted(c.date)} · ${esc(c.worker)}</b>: a rögzített „${esc(c.shift)}” műszak nem létezik a(z) ${esc(c.role)} munkakörben. Oldd fel a rögzítést.</div>`).join('')}
     ${short.length ? `<div class="ny-scroll"><table class="ny-tbl"><thead><tr><th>Dátum</th><th>Műszak</th><th>Munkakör</th><th>Szükséges</th><th>Rendelkezésre áll</th><th>Hiány</th><th>Távollévők (ütköző távollét)</th></tr></thead><tbody>
-      ${short.map((c) => `<tr><td>${M.dotted(c.date)}<br><small>${M.WEEKDAY_SHORT[M.dowOf(c.date)]}</small></td><td>${c.shifts.map((s) => M.SHIFT_LABEL[s]).join(', ')}</td><td>${esc(c.role)}</td><td>${Object.entries(c.required).map(([k, v]) => `${k} ${v}`).join(' + ')}${c.covered && Object.values(c.covered).some(Boolean) ? `<br><small>helyettesítőkkel együtt: ${Object.entries(c.covered).map(([k, v]) => `${k} ${v + c.required[k]}`).join(' + ')}</small>` : ''}</td><td>${c.available} fő</td><td class="ny-red"><b>${c.missing} fő</b></td>
+      ${short.map((c) => `<tr><td>${M.dotted(c.date)}<br><small>${M.WEEKDAY_SHORT[M.dowOf(c.date)]}</small></td><td>${c.shifts.map((s) => M.SHIFT_LABEL[s]).join(', ')}</td><td>${esc(c.role)}</td><td>${Object.entries(c.required).map(([k, v]) => `${k} ${v}`).join(' + ')}${c.groups ? `<br><small>${c.groups} csoport</small>` : ''}${c.covered && Object.values(c.covered).some(Boolean) ? `<br><small>helyettesítőkkel együtt: ${Object.entries(c.covered).map(([k, v]) => `${k} ${v + c.required[k]}`).join(' + ')}</small>` : ''}</td><td>${c.available} fő</td><td class="ny-red"><b>${c.missing} fő</b></td>
         <td>${c.absent.map((a) => `${esc(a.name)} <small>(${a.kind ? M.ABSENCE_KINDS[a.kind].toLowerCase() : 'távol'}${a.from ? ` ${M.shortHu(a.from)}–${M.shortHu(a.to)}` : ''}${a.status ? ', ' + M.ABSENCE_STATUS[a.status].toLowerCase() : ''})</small>`).join('<br>') || '–'}</td></tr>`).join('')}</tbody></table></div>` : ''}`;
 }
 function altMetricsHtml(a, best) {
@@ -602,20 +616,21 @@ function gridHtml(p, grid, month, { editable, counts }) {
   const days = month.days;
   const cnt = (gid, d, sh) => counts?.[`${d}|${sh}|${gid}`];
   return `<div class="ny-gridwrap"><table class="ny-grid"><thead><tr><th class="nm">Dolgozó</th>${days.map((d) => `<th class="${d.work ? '' : d.weekend ? 'we' : 'cl'}" title="${d.off ? esc(d.off) : ''}"><span>${Number(d.date.slice(8))}</span><small>${M.WEEKDAY_SHORT[d.dow]}</small></th>`).join('')}</tr></thead>
-    <tbody>${M.staffByRole(p).map(({ role, workers }) => `<tr class="grp"><th class="nm" colspan="${days.length + 1}">${esc(role.label)}</th></tr>
+    <tbody>${Object.keys(p.children || {}).length ? `<tr class="cnt"><th class="nm">Csoportok (gyerek)</th>${days.map((d) => { if (!d.work) return '<td class="we"></td>'; const g = M.groupsOn(p, d.date); return `<td title="${p.children[M.mondayOf(d.date)] ?? ''} gyerek">${g ?? ''}</td>`; }).join('')}</tr>` : ''}${M.staffByRole(p).map(({ role, workers }) => `<tr class="grp"><th class="nm" colspan="${days.length + 1}">${esc(role.label)}</th></tr>
       ${workers.map((w) => `<tr><th class="nm">${esc(w.name)}</th>${days.map((d) => {
         const code = grid?.[w.id]?.[d.date] || null;
         const v = cellView(p, w.id, d, code);
         const lk = p.locks[M.lockKey(w.id, d.date)];
         return `<td class="${v.cls}${lk ? ' lk' : ''}" style="background:${esc(v.bg)}" ${editable && d.work ? `data-w="${w.id}" data-d="${d.date}" tabindex="0" role="button" aria-label="${esc(w.name)}, ${M.dotted(d.date)}: ${v.t || 'pihenő'}"` : ''}>${esc(v.t)}</td>`;
       }).join('')}</tr>`).join('')}
-      ${counts ? M.shiftsOf(role).map((sh) => `<tr class="cnt"><th class="nm">${M.SHIFT_LABEL[sh]} (min. ${role.min[sh]})</th>${days.map((d) => {
+      ${counts ? M.shiftsOf(role).map((sh) => `<tr class="cnt"><th class="nm">${M.SHIFT_LABEL[sh]}${role.groupsPer > 0 && Object.keys(p.children || {}).length ? '' : ` (min. ${role.min[sh]})`}</th>${days.map((d) => {
         if (!d.work) return '<td class="we"></td>';
         const n = cnt(role.group_id, d.date, sh); const opt = role.opt[sh];
         const c = counts?.[`cov|${d.date}|${sh}|${role.group_id}`] || 0;
-        const own = role.subBy != null ? Math.min(role.minOwn ?? 1, role.min[sh]) : 0;
+        const mn = counts?.[`min|${d.date}|${sh}|${role.group_id}`] ?? role.min[sh];
+        const own = role.subBy != null ? Math.min(role.minOwn ?? 1, mn) : 0;
         const ap = p.approvals[M.approvalKey(d.date, sh, role.group_id)];
-        return `<td class="${n + c < role.min[sh] || n < own ? 'short' : n > opt ? (ap ? 'apr' : 'over') : ''}" ${c ? `title="${n} saját + ${c} helyettesítő"` : ''}>${n}${c ? `<small>+${c}</small>` : ''}</td>`;
+        return `<td class="${n + c < mn || n < own ? 'short' : n > opt ? (ap ? 'apr' : 'over') : ''}" ${c ? `title="${n} saját + ${c} helyettesítő"` : ''}>${n}${c ? `<small>+${c}</small>` : ''}</td>`;
       }).join('')}</tr>`).join('') : ''}`).join('')}</tbody></table></div>`;
 }
 function legendHtml(p) {

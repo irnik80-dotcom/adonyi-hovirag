@@ -59,7 +59,8 @@ export function buildModel(pr, W, avoid = [], minDiff = 0) {
   workdays.forEach((d, di) => {
     for (const s of SH) {
       const t = workers.map((w, wi) => X.get(`${wi}|${di}|${s}`)).filter(Boolean).map((v) => `+ ${v}`);
-      const min = pr.minEff?.[d]?.[s] ?? role.min[s], opt = role.opt?.[s] ?? role.min[s];
+      const min = pr.minEff?.[d]?.[s] ?? role.min[s];
+      const opt = Math.max(role.opt?.[s] ?? role.min[s], pr.dayMins?.[d]?.[s] ?? 0);
       if (min > 0) row(`min_${di}_${s}`, t, '>=', min);
       if (opt > min) { const u = `u_${di}_${s}`; obj.push([W.opt, u]); row(`opt_${di}_${s}`, [`+ ${u}`, ...t], '>=', opt); }
       if (t.length > opt) {
