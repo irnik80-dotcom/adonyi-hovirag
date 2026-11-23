@@ -452,6 +452,7 @@ function tabGenerate(el) {
     ${conflicts.length ? conflictHtml(conflicts) : `<div class="ny-card ok">A minimumlétszám minden munkanapon biztosítható a megadott távollétek mellett.</div>`}
     <section class="field">
       <button class="btn" id="gen" type="button" ${conflicts.length || st.running ? 'disabled' : ''}>${st.running ? 'Számolás…' : `${p.settings.alternatives} változat generálása`}</button>
+      ${p.alternatives.some((a) => a.grid) ? '<button class="btn ghost small" id="gpdf" type="button" style="margin-top:8px">Összes változat egy PDF-ben</button>' : ''}
       <div id="gprog" class="tabs-note">${st.running && st.progress ? esc(st.progress) : ''}</div>
       <p class="tabs-note">Kötelező: minimumlétszám, távollétek, egy műszak naponta, saját munkakör${nLocks ? `, és a(z) <b>${nLocks} kézzel rögzített cella</b>` : ''}. Utána, fontossági sorrendben: ötnapos (hétfő–péntek) blokkok, azonos műszak a héten, a munkanapok arányos elosztása, kevés elszigetelt nap. Néhány tíz másodperc is lehet.</p></section>
     ${stale() ? '<div class="ny-card warn">A változatok elkészülte óta megváltoztak a bemenetek (időszak, létszám, dolgozók vagy távollétek). Érdemes újragenerálni.</div>' : ''}
@@ -462,6 +463,7 @@ function tabGenerate(el) {
       <div class="ny-btns"><button class="btn small" data-pick="${esc(a.id)}" type="button">${p.selected === a.id ? 'Újra betöltés' : 'Ezt választom'}</button><a class="btn ghost small" href="${BASE}/${st.id}?t=beosztas&alt=${esc(a.id)}">Megnézem</a></div></article>`
       : `<article class="ny-alt"><b>${i + 1}. ${esc(PROFILES[a.profile]?.label || '')}</b><p class="ny-red">Nem sikerült: ${esc((a.notes || []).join('; '))}</p></article>`).join('')}`;
   $('gen').onclick = () => runGenerate(el);
+  if ($('gpdf')) $('gpdf').onclick = (e) => allVariantsPdf(e.currentTarget);
   el.querySelectorAll('[data-pick]').forEach((b) => (b.onclick = () => pickAlt(b.dataset.pick)));
 }
 function pickAlt(id) {
@@ -530,6 +532,24 @@ async function solveHere(pr, profiles, onProgress) {
   let h = null;
   const get = async (force) => (h && !force ? h : (h = await loadHighs({ locateFile: (f) => '/nyar/vendor/' + f })));
   return generateRoleAlternatives(get, pr, profiles, { onProgress, timeLimit: 10 });
+}
+
+// Az összes változat (és a kiválasztott, esetleg kézzel módosított beosztás) egy PDF-ben, összehasonlításhoz
+async function allVariantsPdf(btn) {
+  const p = st.plan;
+  const t = btn.textContent; btn.disabled = true; btn.textContent = 'Készül…';
+  try {
+    const sub = (v) => { const m = v.metrics; return `Teljes heti blokk: ${m.fullBlockRate}% · műszakváltás: ${m.shiftChanges} · napszám-szórás: ${m.maxSpread} nap · elszigetelt nap: ${m.isolated} · többlet: ${m.surplusPersons} fő×műszak`; };
+    const sheets = p.alternatives.filter((a) => a.grid).map((a, i) => {
+      const v = M.validate(p, st.cal, st.abs, { grid: a.grid });
+      return { grid: a.grid, val: v, label: `${i + 1}. ${a.label}`, sub: sub(v) };
+    });
+    if (p.schedule && (p.schedule.manual || !p.selected)) sheets.push({ grid: p.schedule.grid, val: st.val, label: 'Kiválasztott, kézzel módosított', sub: sub(st.val) });
+    const { makePdf } = await import('./pdf.js');
+    const bytes = await makePdf(p, st.cal, st.abs, st.val || sheets[0].val, st.cal.months.map((m) => m.key), null, sheets);
+    download(new Blob([bytes], { type: 'application/pdf' }), `${slug(p.name)}-valtozatok.pdf`);
+  } catch (e) { console.error(e); C.toast(`A PDF nem készült el: ${errMsg(e)}`); }
+  btn.disabled = false; btn.textContent = t;
 }
 
 // ---------- Beosztás (rács + kézi szerkesztés) ----------

@@ -323,3 +323,16 @@ test('egy műszakos munkakör (pedagógiai asszisztens): csak napi „D” beosz
   assert.equal(old.schedule.grid[111]['2027-06-21'], 'D'); assert.equal(old.schedule.grid[100]['2027-06-21'], 'DU');
   assert.equal(old.locks['112|2027-06-22'], 'D');
 });
+
+test('összes változat egy PDF-ben: változatonként havi oldalak, a fejlécben a változat neve', async (t) => {
+  const { plan, cal, am, alts } = await loaded;
+  const fonts = { reg: fs.readFileSync('public/nyar/vendor/DejaVuSansCondensed.ttf'), bold: fs.readFileSync('public/nyar/vendor/DejaVuSansCondensed-Bold.ttf') };
+  const sheets = alts.map((a, i) => ({ grid: a.grid, val: M.validate(plan, cal, am, { grid: a.grid }), label: `${i + 1}. ${a.label}`, sub: 'mutatók' }));
+  const bytes = await makePdf(plan, cal, am, sheets[0].val, cal.months.map((m) => m.key), { PDFDocument, rgb, fontkit, fonts }, sheets);
+  const doc = await PDFDocument.load(bytes);
+  assert.equal(doc.getPageCount(), 9);
+  try { execFileSync('pdftotext', ['-v'], { stdio: 'ignore' }); } catch { return t.skip('nincs pdftotext'); }
+  const f = path.join(os.tmpdir(), `nyar-alt-${process.pid}.pdf`); fs.writeFileSync(f, bytes);
+  const pages = execFileSync('pdftotext', ['-layout', f, '-']).toString('utf8').split('\f'); fs.unlinkSync(f);
+  assert.ok(pages[0].includes('1. Ajánlott') && pages[3].includes('2. Erős blokkok') && pages[6].includes('3. Egyenletes terhelés'));
+});
