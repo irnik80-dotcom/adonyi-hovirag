@@ -26,7 +26,8 @@ const hex = (rgb, h) => {
 };
 
 // plan, cal, abs: a modell objektumai; val: validate() eredménye; months: ['2027-06', ...]
-export async function makePdf(plan, cal, abs, val, months, deps = null) {
+// sheets (nem kötelező): több beosztás egy fájlban, pl. az összes változat: [{ grid, val, label, sub }]
+export async function makePdf(plan, cal, abs, val, months, deps = null, sheets = null) {
   deps ||= await loadDeps();
   const { PDFDocument, rgb, fontkit } = deps;
   const doc = await PDFDocument.create();
@@ -36,13 +37,15 @@ export async function makePdf(plan, cal, abs, val, months, deps = null) {
   doc.setTitle(`${plan.name}`); doc.setAuthor(plan.settings.report.title || ''); doc.setCreator('HÓVIRÁG – nyári beosztás');
   const s = plan.settings, rep = s.report;
   const ink = rgb(0.09, 0.15, 0.12), grey = rgb(0.36, 0.42, 0.38), line = rgb(0.55, 0.6, 0.57), red = rgb(0.7, 0.1, 0.05);
-  const grid = plan.schedule?.grid || {};
   const groups = staffByRole(plan);
-  const alt = plan.alternatives.find((a) => a.id === plan.selected);
+  const selAlt = plan.alternatives.find((a) => a.id === plan.selected);
+  sheets ||= [{ grid: plan.schedule?.grid || {}, val, label: selAlt?.label || '' }];
   const made = new Date();
   const madeS = `${made.getFullYear()}. ${String(made.getMonth() + 1).padStart(2, '0')}. ${String(made.getDate()).padStart(2, '0')}.`;
 
-  for (const mk of months) {
+  for (const sheet of sheets) for (const mk of months) {
+    const { grid = {}, val: sv, label = '', sub = '' } = sheet;
+    val = sv;
     const month = cal.months.find((m) => m.key === mk);
     if (!month) continue;
     let days = month.days;
@@ -65,17 +68,18 @@ export async function makePdf(plan, cal, abs, val, months, deps = null) {
     const rect = (x, y, w, h, fill) => page.drawRectangle({ x, y, width: w, height: h, color: fill });
 
     // fejléc
-    const title = `${rep.title ? rep.title + ' – ' : ''}Nyári munkabeosztás · ${mk.slice(0, 4)}. ${MONTH_NAMES[Number(mk.slice(5, 7)) - 1]}`;
+    const title = `${sheets.length > 1 && label ? label + ' · ' : rep.title ? rep.title + ' – ' : ''}Nyári munkabeosztás · ${mk.slice(0, 4)}. ${MONTH_NAMES[Number(mk.slice(5, 7)) - 1]}`;
     text(fit(title, B, 17, (right - left) * 0.62), left, top - 17, 17, B);
-    const meta = `Időszak: ${dotted(plan.period.from)} – ${dotted(plan.period.to)} · Készült: ${madeS}${alt ? ' · Változat: ' + alt.label : ''}`;
+    const meta = `Időszak: ${dotted(plan.period.from)} – ${dotted(plan.period.to)} · Készült: ${madeS}${label ? ' · Változat: ' + label : ''}`;
     text(meta, right - F.widthOfTextAtSize(meta, 9), top - 10, 9, F, grey);
     const status = val.ok ? 'Érvényes beosztás' : `NEM VÉGLEGES – ${val.errors.length} hiba`;
     text(status, right - B.widthOfTextAtSize(status, 10), top - 23, 10, B, val.ok ? grey : red);
+    if (sub) text(fit(sub, F, 9, (right - left) * 0.62), left, top - 29, 9, F, grey);
 
     // méretek
     const headH = 26, legendH = 34, gap = 8;
     const nRows = groups.reduce((a, g) => a + 1 + g.workers.length + (rep.show_counts ? shiftsOf(g.role).length : 0), 0);
-    const tableTop = top - 32;
+    const tableTop = top - (sub ? 40 : 32);
     const availH = tableTop - headH - (bottom + legendH + gap);
     const rowH = Math.max(8, Math.min(22, availH / Math.max(1, nRows)));
     const grpH = rowH;
