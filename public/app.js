@@ -713,6 +713,7 @@ async function viewSettings() {
       <input class="input" id="pn2" type="password" autocomplete="new-password" autocapitalize="off" placeholder="Új jelszó mégegyszer" required style="margin-top:8px">
       <div id="pmsg"></div><button class="btn ghost" type="submit">Jelszó módosítása</button></form></div>
     <div class="field"><a class="btn ghost" style="text-decoration:none;margin-top:0" href="#/naplo">Napló megtekintése</a></div>
+    <div class="field"><span class="label">Nyári beosztás</span><a class="btn ghost" style="text-decoration:none;margin-top:0" href="#/nyari-beosztas">Nyári munkabeosztás-készítő</a></div>
     <div class="field"><span class="label">Értesítések (névnapok)</span>
       <p class="tabs-note" style="margin:0 0 8px">Egy héttel a névnap előtt értesítést kapsz ezen az eszközön. Eszközönként külön kell bekapcsolni.</p>
       <div id="pstat" class="tabs-note" style="margin:0 0 8px"></div>
@@ -1069,6 +1070,8 @@ async function viewAudit() {
       case 'leave.budget': return `Szabadság-keret: ${esc(name(d.workerId))} · ${d.year}: ${d.entitlement} nap${d.carry ? ` + ${d.carry} átvitt` : ''}`;
       case 'holiday.set': return `Speciális nap: ${dotted(d.date)} (${d.kind === 'off' ? 'szabadnap' : 'ledolgozandó munkanap'})`;
       case 'holiday.delete': return `Speciális nap törölve: ${dotted(d.date)}`;
+      case 'summer.create': return `Nyári beosztás terv létrehozva: ${esc(d.name)}`;
+      case 'summer.delete': return `Nyári beosztás terv törölve: ${esc(d.name)}`;
       case 'push.sent': return `Névnap-értesítés elküldve (${d.sent} eszköz)`;
       case 'push.test': return `Teszt értesítés (${d.sent} eszköz)`;
       case 'push.subscribe': return 'Értesítés bekapcsolva egy eszközön';
@@ -1364,6 +1367,9 @@ async function route() {
   try {
     if (path === '/belepes') return viewLogin();
     $app.classList.toggle('wide', path.startsWith('/kimutatas/') && path !== '/kimutatas/szabadsag');
+    // Nyári beosztás: külön modul (public/nyar/), csak megnyitáskor töltődik be
+    $app.classList.toggle('nyar', path.startsWith('/nyari-beosztas'));
+    if (path.startsWith('/nyari-beosztas')) return await (await import('/nyar/index.js')).mount($app, { api, toast, esc, path, q });
     if (path === '/uj') return await viewNew(q.get('w'));
     if (path === '/szabadsag') return await viewLeave(q);
     if (path === '/szabadsag/uj') return await viewLeaveNew(q);
