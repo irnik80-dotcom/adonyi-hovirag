@@ -217,7 +217,6 @@ function tabSettings(el) {
     <section class="field"><span class="label">Nyomtatási riport</span>
       <input class="input" id="rt" maxlength="80" value="${esc(s.report.title)}" aria-label="Riport fejléce">
       <div class="row" style="margin-top:8px"><label class="ny-inl" for="rm">Margó (mm)</label><input class="input ny-num" type="number" id="rm" min="0" max="15" value="${s.report.margin_mm}"></div>
-      <label class="ny-chk"><input type="checkbox" id="rc" ${s.report.show_counts ? 'checked' : ''}> Napi létszám sor munkakörönként</label>
       <label class="ny-chk"><input type="checkbox" id="rw" ${s.report.weekend_x ? 'checked' : ''}> Hétvége X-szel jelölve</label>
       <label class="ny-chk"><input type="checkbox" id="rp" ${s.report.period_only ? 'checked' : ''}> Csak a tervezési időszak napjai (különben a teljes hónap)</label>
       <p class="tabs-note">Nem minden nyomtató tud szegély nélkül nyomtatni; ha a széle lemarad, növeld a margót 5–8 mm-re.</p></section>`;
@@ -295,7 +294,6 @@ function tabSettings(el) {
   $('cres').onclick = () => { s.colors = { ...M.DEFAULT_SETTINGS.colors }; s.abbr = { ...M.DEFAULT_SETTINGS.abbr }; changed({ rerender: rerenderTab }); };
   $('rt').oninput = (e) => { s.report.title = e.target.value.trim(); changed(); };
   $('rm').oninput = $('rm').onchange = (e) => { s.report.margin_mm = Math.max(0, Math.min(15, Number(e.target.value) || 0)); changed(); };
-  $('rc').onchange = (e) => { s.report.show_counts = e.target.checked; changed(); };
   $('rw').onchange = (e) => { s.report.weekend_x = e.target.checked; changed(); };
   $('rp').onchange = (e) => { s.report.period_only = e.target.checked; changed(); };
 }
@@ -813,7 +811,7 @@ function tabPrint(el) {
     <section class="field"><span class="label">A3 fekvő, havonta egy oldal</span>
       <button class="btn" id="pall" type="button">PDF letöltése (${st.cal.months.length} oldal)</button>
       <div class="ny-btns">${st.cal.months.map((m) => `<button class="btn ghost small" type="button" data-pm="${m.key}">${M.MONTH_NAMES[Number(m.key.slice(5)) - 1]}</button>`).join('')}</div>
-      <p class="tabs-note">Margó: ${p.settings.report.margin_mm} mm · ${p.settings.report.show_counts ? 'napi létszám sorral' : 'létszám sor nélkül'}. A színek, rövidítések és a margó a Beállításokban módosíthatók. Nyomtatáskor válaszd az A3 papírt és a „tényleges méret” (100%) beállítást.</p></section>`;
+      <p class="tabs-note">Margó: ${p.settings.report.margin_mm} mm. A létszámok az appban, a Beosztás fülön láthatók, a riportban nem szerepelnek. A színek, rövidítések és a margó a Beállításokban módosíthatók. Nyomtatáskor válaszd az A3 papírt és a „tényleges méret” (100%) beállítást.</p></section>`;
   const go = async (months, btn) => {
     btn.disabled = true; const t = btn.textContent; btn.textContent = 'Készül…';
     try {
