@@ -294,7 +294,7 @@ async function viewNew(preselect) {
       <div class="quick chips" id="gch" style="margin:0 0 8px">${groups.filter((g) => active.some((w) => gidsOf(w).includes(g.id))).map((g) => `<button type="button" data-gp="${g.id}">${esc(g.name)} (${active.filter((w) => gidsOf(w).includes(g.id)).length})</button>`).join('')}<button type="button" data-gp="all">Mindenki</button><button type="button" data-gp="none">Törlés</button></div>
       <div class="checks">${active.map((w) => `<label class="check"><input type="checkbox" value="${w.id}"><span>${esc(w.name)}</span></label>`).join('')}</div></div>
       <label class="check multi" id="multilbl"><input type="checkbox" id="multi"><span>Több dolgozónak egyszerre</span></label></div>
-    <div class="field" id="prewrap"><span class="label">Gyors tételek</span><div class="quick chips" id="pre" style="margin-top:0"></div></div>
+    <div class="field" id="prewrap"><span class="label">Gyors tételek</span><div class="quick chips mt-0" id="pre"></div></div>
     <div class="field"><span class="label">Mi történt?</span><div class="seg three">
       <button type="button" data-kind="credit" aria-pressed="true">+ Túlóra</button>
       <button type="button" data-kind="use" aria-pressed="false">− Szabadidő</button>
@@ -311,18 +311,18 @@ async function viewNew(preselect) {
         <div class="pm"><button type="button" data-d="m-5" aria-label="Perc csökkentése">−</button><button type="button" data-d="m+5" aria-label="Perc növelése">+</button></div></div></div>
       <div class="quick"><button type="button" data-add="15">+15 p</button><button type="button" data-add="30">+30 p</button><button type="button" data-add="60">+1 ó</button><button type="button" data-add="120">+2 ó</button><button type="button" data-add="480">+8 ó</button></div></div></div>
     <div class="field"><span class="label">Melyik nap(ok)?</span>
-      <div class="calhead" style="margin-top:0"><button type="button" class="back" data-cm="-1" aria-label="Előző hónap">${ICONS.back}</button><b id="cmt"></b>
+      <div class="calhead mt-0"><button type="button" class="back" data-cm="-1" aria-label="Előző hónap">${ICONS.back}</button><b id="cmt"></b>
         <button type="button" class="back" data-cm="1" aria-label="Következő hónap" style="transform:scaleX(-1)">${ICONS.back}</button></div>
       <div class="calgrid pick" id="cpick"></div>
       <p class="tabs-note" id="dsum"></p>
       <label class="check"><input type="checkbox" id="wk" checked><span>Hétvégék és munkaszüneti napok kihagyása</span></label>
-      <div class="quick chips" id="days" style="margin-top:0" hidden></div>
+      <div class="quick chips mt-0" id="days" hidden></div>
       <p class="tabs-note" id="dnote" hidden></p></div>
     <div class="field"><label for="n">Megjegyzés</label>
       ${templates.length ? `<div class="quick" id="tpl" style="margin:0 0 8px">${templates.map((t) => `<button type="button" data-t="${esc(t.text)}">${esc(t.text)}</button>`).join('')}</div>` : ''}
       <textarea class="input" id="n" maxlength="300" placeholder="Pl. szülői értekezlet, rendezvény…"></textarea></div>
     <div class="preview"><span id="pl">Új egyenleg</span><span id="pv"></span></div>
-    <button type="button" class="btn ghost small" id="savepre" style="margin-top:10px">Mentés gyors tételként</button><div id="prepanel"></div>
+    <button type="button" class="btn ghost small mt-10" id="savepre">Mentés gyors tételként</button><div id="prepanel"></div>
     <div id="msg"></div>
     </form><div class="savebar"><button class="btn" id="save" type="submit" form="f">Mentés</button></div>`;
   const $ = (id) => document.getElementById(id);
@@ -471,9 +471,9 @@ async function viewNew(preselect) {
   };
   $('savepre').onclick = () => {
     if (minutes() <= 0) { toast('Előbb add meg az időtartamot.'); return; }
-    $('prepanel').innerHTML = `<div class="bulk" style="margin-top:10px"><label class="label" for="pn1">Sablon neve</label><input class="input" id="pn1" maxlength="40" value="${esc($('n').value.trim().slice(0, 40))}" placeholder="Pl. Szülői értekezlet">
-      <label class="label" for="pt1" style="margin-top:10px">Kinek</label><select class="input" id="pt1"><option value="">Nincs megadva (a dolgozót magad választod)</option><option value="all">Mindenki</option>${groups.map((g) => `<option value="g${g.id}">${esc(g.name)}</option>`).join('')}</select>
-      <div class="row" style="margin-top:10px"><button class="btn small" type="button" id="pgo">Mentés</button><button class="btn ghost small" type="button" id="pno">Mégsem</button></div></div>`;
+    $('prepanel').innerHTML = `<div class="bulk mt-10"><label class="label" for="pn1">Sablon neve</label><input class="input" id="pn1" maxlength="40" value="${esc($('n').value.trim().slice(0, 40))}" placeholder="Pl. Szülői értekezlet">
+      <label class="label mt-10" for="pt1">Kinek</label><select class="input" id="pt1"><option value="">Nincs megadva (a dolgozót magad választod)</option><option value="all">Mindenki</option>${groups.map((g) => `<option value="g${g.id}">${esc(g.name)}</option>`).join('')}</select>
+      <div class="row mt-10"><button class="btn small" type="button" id="pgo">Mentés</button><button class="btn ghost small" type="button" id="pno">Mégsem</button></div></div>`;
     $('pno').onclick = () => { $('prepanel').innerHTML = ''; };
     $('pgo').onclick = async () => {
       try {
@@ -532,7 +532,7 @@ async function viewNew(preselect) {
   };
   const warnSigned = (list) => {
     $('msg').innerHTML = `<div class="warnbox"><b>Ez az időszak már alá van írva.</b><br>${list.map((x) => `${esc(x.name)}: ${dotted(x.signed_to)}-ig`).join('<br>')}
-      <br>A mostani tétel az aláírt papír tartalmát megváltoztatná.<div class="row" style="margin-top:10px"><button class="btn small" type="button" id="go">Mégis rögzítem</button><button class="btn ghost small" type="button" id="no">Mégsem</button></div></div>`;
+      <br>A mostani tétel az aláírt papír tartalmát megváltoztatná.<div class="row mt-10"><button class="btn small" type="button" id="go">Mégis rögzítem</button><button class="btn ghost small" type="button" id="no">Mégsem</button></div></div>`;
     $('go').onclick = () => submit(true); $('no').onclick = () => { $('msg').innerHTML = ''; };
     $('msg').scrollIntoView({ block: 'center', behavior: 'smooth' });
   };
@@ -553,25 +553,25 @@ async function viewWorker(id) {
     <div class="topbar withart"><a class="back" href="#/" aria-label="Vissza">${ICONS.back}</a><h2>${esc(worker.name)}</h2></div>${ICONS.flowerArt}
     ${myGroups.length ? `<div class="quick" style="margin:8px 0 0">${myGroups.map((g) => `<span class="gtag">${esc(g.name)}</span>`).join('')}</div>` : ''}
     ${worker.active === 2 ? `<div class="banner park"><b>Parkoltatva</b>${worker.park_note ? `: ${esc(worker.park_note)}` : ''}<br><small>${dotted(worker.park_since)} óta${worker.park_until ? ` · várható visszatérés: ${dotted(worker.park_until)}` : ''} A listákban és kimutatásokban nem szerepel.</small>
-      <button class="btn small" id="unpark" type="button" style="margin-top:8px">Visszahozás aktívként</button></div>` : ''}
+      <button class="btn small mt-8" id="unpark" type="button">Visszahozás aktívként</button></div>` : ''}
     ${worker.active === 0 ? '<div class="banner park"><b>Kilépett dolgozó</b><br><small>A listákban és kimutatásokban nem szerepel. Törölni a Beállításokban lehet.</small></div>' : ''}
     <div class="hero"><div class="top"><span>Aktuális egyenleg</span><div class="big">${bigTime(worker.balance)}</div></div>
       ${worker.planned ? `<div class="pills"><span class="pill">Tervezett: ${fmt(worker.planned, true)}</span></div>` : ''}</div>
     ${worker.active === 1 ? `<a class="btn" href="#/uj?w=${worker.id}" style="text-decoration:none">+ Új tétel ennek a dolgozónak</a>` : ''}
-    <div class="row" style="margin-top:10px"><a class="btn ghost small" style="flex:1;text-align:center;text-decoration:none" href="#/kimutatas?w=${worker.id}">Kimutatás</a>
+    <div class="row mt-10"><a class="btn ghost small" style="flex:1;text-align:center;text-decoration:none" href="#/kimutatas?w=${worker.id}">Kimutatás</a>
       <a class="btn ghost small" style="flex:1;text-align:center;text-decoration:none" href="#/szabadsag/${worker.id}">Szabadság</a>
       <button class="btn ghost small" style="flex:1" id="ren" type="button">Név / névnap</button></div>
-    <form id="renf" style="margin-top:10px" hidden><label class="label" for="newname">Név</label><input class="input" id="newname" maxlength="80" value="${esc(worker.name)}" required>
-      <label class="label" for="newfn" style="margin-top:10px">Keresztnév a névnaphoz (nem kötelező)</label>
+    <form id="renf" class="mt-10" hidden><label class="label" for="newname">Név</label><input class="input" id="newname" maxlength="80" value="${esc(worker.name)}" required>
+      <label class="label mt-10" for="newfn">Keresztnév a névnaphoz (nem kötelező)</label>
       <input class="input" id="newfn" maxlength="60" autocomplete="off" value="" placeholder="${worker.has_first_name ? 'Megadva (nem látszik). Új beírása felülírja.' : 'Pl. Ágnes'}">
       <p class="tabs-note" style="margin:6px 0 0">A megadott keresztnév sehol nem jelenik meg (sem a felületen, sem a kimutatásokban), csak a névnapokhoz használjuk. Ha nincs megadva, a név második szavát vesszük. Több keresztnév vesszővel vagy szóközzel elválasztható.</p>
       ${worker.has_first_name ? '<label class="check"><input type="checkbox" id="clearfn"><span>Megadott keresztnév törlése</span></label>' : ''}
-      <button class="btn small" type="submit" style="margin-top:10px">Mentés</button></form>
+      <button class="btn small mt-10" type="submit">Mentés</button></form>
     ${namedays.length ? `<p class="tabs-note" style="margin:10px 0 0">Névnap: ${namedays.map((n) => shortDate(`2026-${pad(n.mm)}-${pad(n.dd)}`)).join(', ')}</p>` : ''}
     <div class="yearcard" id="yc"></div>
     ${signatures.length ? `<div class="field"><span class="label">Aláírt kimutatások</span>${signatures.slice(0, 5).map((s) => `<div class="set-item"><span>${dotted(s.from_date)} – ${dotted(s.to_date)}</span><em class="status ok">Aláírva: ${dotted(s.signed_on)}</em></div>`).join('')}</div>` : ''}
     <div class="field"><span class="label">Tételek</span>
-      <div class="quick chips" id="ft" style="margin-top:0"><button type="button" data-ft="all" aria-pressed="true">Mind</button><button type="button" data-ft="credit">Túlóra</button><button type="button" data-ft="use">Szabadidő</button><button type="button" data-ft="planned">Tervezett</button></div>
+      <div class="quick chips mt-0" id="ft"><button type="button" data-ft="all" aria-pressed="true">Mind</button><button type="button" data-ft="credit">Túlóra</button><button type="button" data-ft="use">Szabadidő</button><button type="button" data-ft="planned">Tervezett</button></div>
       <div class="quick chips" id="fr"><button type="button" data-fr="all" aria-pressed="true">Mindig</button><button type="button" data-fr="edu">Nevelési év</button><button type="button" data-fr="90">Utolsó 90 nap</button></div></div>
     <div class="entries" id="e"></div>
     <p class="tabs-note">A tételek nem törölhetők, hibát sztornóval lehet javítani.</p>${nav('')}`;
@@ -584,8 +584,8 @@ async function viewWorker(id) {
     const inRange = live.filter((e) => e.date >= start && e.kind !== 'opening');
     const gained = inRange.reduce((s, e) => s + Math.max(e.minutes, 0), 0);
     const used = inRange.reduce((s, e) => s + Math.max(-e.minutes, 0), 0);
-    document.getElementById('yc').innerHTML = `<div class="yhead"><span class="label" style="margin:0">${f.year === 'edu' ? 'Nevelési év' : 'Naptári év'} (${dotted(start)}-tól)</span>
-      <span class="quick chips" style="margin:0"><button type="button" data-yr="edu" aria-pressed="${f.year === 'edu'}">Nevelési</button><button type="button" data-yr="cal" aria-pressed="${f.year === 'cal'}">Naptári</button></span></div>
+    document.getElementById('yc').innerHTML = `<div class="yhead"><span class="label m-0">${f.year === 'edu' ? 'Nevelési év' : 'Naptári év'} (${dotted(start)}-tól)</span>
+      <span class="quick chips m-0"><button type="button" data-yr="edu" aria-pressed="${f.year === 'edu'}">Nevelési</button><button type="button" data-yr="cal" aria-pressed="${f.year === 'cal'}">Naptári</button></span></div>
       <div class="ygrid"><div><small>Nyitó</small><b>${fmt(before)}</b></div><div><small>Gyűjtött</small><b class="plus-c">${fmt(gained, true)}</b></div>
       <div><small>Felhasznált</small><b class="minus-c">${used ? fmt(-used) : '0 ó 00 p'}</b></div><div><small>Egyenleg</small><b>${fmt(before + gained - used)}</b></div></div>`;
     document.querySelectorAll('[data-yr]').forEach((b) => (b.onclick = () => { f.year = b.dataset.yr; drawYear(); }));
@@ -611,9 +611,9 @@ async function viewWorker(id) {
         <div class="row"><input class="input" type="number" inputmode="numeric" min="0" max="999" name="h" value="${Math.floor(Math.abs(e.minutes) / 60)}" aria-label="Óra" ${dateLocked ? 'disabled' : ''}>
           <input class="input" type="number" inputmode="numeric" min="0" max="59" name="m" value="${Math.abs(e.minutes) % 60}" aria-label="Perc" ${dateLocked ? 'disabled' : ''}></div>
         <p class="tabs-note" style="margin:4px 0 0">óra · perc</p>
-        <label class="label" for="en" style="margin-top:10px">Megjegyzés</label>
+        <label class="label mt-10" for="en">Megjegyzés</label>
         <input class="input" id="en" name="note" maxlength="300" value="${esc(e.note)}" aria-label="Megjegyzés"><div class="ew"></div>
-        <div class="row" style="margin-top:8px"><button class="btn small" type="submit">Mentés</button><button class="btn ghost small" type="button" data-cancel>Mégsem</button></div></form>`;
+        <div class="row mt-8"><button class="btn small" type="submit">Mentés</button><button class="btn ghost small" type="button" data-cancel>Mégsem</button></div></form>`;
       const form = row.querySelector('form'); let confirm = false;
       row.querySelector('[data-cancel]').onclick = () => drawEntries();
       form.onsubmit = async (ev) => {
@@ -666,7 +666,7 @@ async function viewSettings() {
     <div class="topbar"><h2>Beállítások</h2></div>
     <form id="f"><div class="field"><label for="nm">Új dolgozó</label>
       <input class="input" id="nm" placeholder="Teljes név" maxlength="80" required></div>
-      ${groups.length ? `<div class="field"><span class="label">Munkakör (kötelező)</span><div class="quick chips" id="ng" style="margin-top:0">${groups.map((g) => `<button type="button" data-ng="${g.id}" aria-pressed="false">${esc(g.name)}</button>`).join('')}</div>
+      ${groups.length ? `<div class="field"><span class="label">Munkakör (kötelező)</span><div class="quick chips mt-0" id="ng">${groups.map((g) => `<button type="button" data-ng="${g.id}" aria-pressed="false">${esc(g.name)}</button>`).join('')}</div>
         <p class="tabs-note" style="margin:6px 0 0">Az <b>Egyéb</b> a nem nevelő munkát végző kollégák (például konyhai, takarító vagy karbantartó dolgozó) munkaköre.</p></div>` : ''}
       <div class="field"><span class="label">Nyitó egyenleg a papírról</span><div class="row">
         <input class="input" id="oh" type="number" inputmode="numeric" min="0" placeholder="óra" aria-label="Nyitó óra">
@@ -692,29 +692,29 @@ async function viewSettings() {
       ${groups.length ? `<div class="quick chips" data-wg="${w.id}">${groups.map((g) => `<button type="button" data-g="${g.id}" aria-pressed="${gidsOf(w).includes(g.id)}">${esc(g.name)}</button>`).join('')}</div>` : ''}</div>`).join('')}</div>
     <div class="field"><span class="label">Munkakörök</span>
       ${groups.map((g) => `<div class="set-item"><span>${esc(g.name)}</span><button class="btn ghost small" data-delgrp="${g.id}">Törlés</button></div>`).join('')}
-      <form id="gf2" class="row" style="margin-top:8px"><input class="input" id="gn" maxlength="60" placeholder="Új munkakör (pl. Konyhai dolgozó)" required><button class="btn small" type="submit">Hozzáad</button></form>
+      <form id="gf2" class="row mt-8"><input class="input" id="gn" maxlength="60" placeholder="Új munkakör (pl. Konyhai dolgozó)" required><button class="btn small" type="submit">Hozzáad</button></form>
       <p class="tabs-note">Egy dolgozónak egy munkaköre van, ami bármikor átállítható. A munkakör törlése a dolgozókat nem törli. A korábbi kimutatásokat nem érinti, az új kimutatások mindig a jelenlegi munkakört veszik alapul.</p></div>
     <div class="field"><span class="label">Figyelmeztetés magas egyenlegre</span>
       <form id="wf" class="row"><input class="input" id="wh" type="number" inputmode="numeric" min="0" max="1000" value="${Math.round(warnHigh / 60)}" aria-label="Óra"><button class="btn small" type="submit">Mentés</button></form>
       <p class="tabs-note">Ennyi óra felett az Áttekintésen figyelmeztetést látsz. 0 = kikapcsolva.</p></div>
     <div class="field"><span class="label">Gyors tételek</span>
-      ${presetsList.length ? presetsList.map((x) => `<div class="set-item"><span>${esc(x.name)} · ${x.kind === 'use' ? '−' : '+'}${hmm(x.minutes)}${x.target === 'all' ? ' · mindenki' : x.target ? ` · ${esc(groups.find((g) => 'g' + g.id === x.target)?.name || 'munkakör')}` : ''}</span><button class="btn ghost small" data-delpre="${x.id}">Törlés</button></div>`).join('') : '<p class="tabs-note" style="margin:0">Még nincs. Az Új tétel oldalon a „Mentés gyors tételként” gombbal hozhatsz létre.</p>'}</div>
+      ${presetsList.length ? presetsList.map((x) => `<div class="set-item"><span>${esc(x.name)} · ${x.kind === 'use' ? '−' : '+'}${hmm(x.minutes)}${x.target === 'all' ? ' · mindenki' : x.target ? ` · ${esc(groups.find((g) => 'g' + g.id === x.target)?.name || 'munkakör')}` : ''}</span><button class="btn ghost small" data-delpre="${x.id}">Törlés</button></div>`).join('') : '<p class="tabs-note m-0">Még nincs. Az Új tétel oldalon a „Mentés gyors tételként” gombbal hozhatsz létre.</p>'}</div>
     <details class="field bulkimp"><summary class="label" style="cursor:pointer">Munkaszüneti napok és áthelyezett munkanapok</summary>
       <p class="tabs-note" style="margin:6px 0 8px">A törvényi ünnepnapok (húsvét, pünkösd is) magától benne vannak a naptárban. Az áthelyezett pihenő- és munkanapokat, valamint az egyéb szabadnapokat (például december 24.) évente rendelet állapítja meg, ezeket itt adhatod meg.</p>
       <form id="hf"><div class="row"><input class="input" id="hd" type="date" required aria-label="Dátum"><select class="input" id="hk" aria-label="Típus"><option value="off">Szabadnap</option><option value="work">Ledolgozandó munkanap</option></select></div>
-        <input class="input" id="hl" maxlength="60" placeholder="Megnevezés (pl. áthelyezett pihenőnap)" style="margin-top:8px"><button class="btn small" type="submit" style="margin-top:8px">Hozzáadás</button></form>
-      <div id="hlist" style="margin-top:10px"></div></details>
+        <input class="input mt-8" id="hl" maxlength="60" placeholder="Megnevezés (pl. áthelyezett pihenőnap)"><button class="btn small mt-8" type="submit">Hozzáadás</button></form>
+      <div id="hlist" class="mt-10"></div></details>
     <div class="field"><span class="label">Gyakori megjegyzések</span>
       ${templates.map((t) => `<div class="set-item"><span>${esc(t.text)}</span><button class="btn ghost small" data-deltpl="${t.id}" aria-label="Törlés: ${esc(t.text)}">Törlés</button></div>`).join('')}
-      <form id="tf" class="row" style="margin-top:8px"><input class="input" id="tt" maxlength="60" placeholder="Új gyors megjegyzés" required><button class="btn small" type="submit">Hozzáad</button></form></div>
+      <form id="tf" class="row mt-8"><input class="input" id="tt" maxlength="60" placeholder="Új gyors megjegyzés" required><button class="btn small" type="submit">Hozzáad</button></form></div>
     <div class="field"><span class="label">Adatok mentése</span>
       <a class="btn ghost" style="text-decoration:none;margin-top:0" href="/api/backup?format=csv" download>Táblázat letöltése (Excel, CSV)</a>
       <a class="btn ghost" style="text-decoration:none" href="/api/backup" download>Teljes mentés letöltése (JSON)</a>
       <p class="tabs-note">Havonta egyszer érdemes letölteni és egy biztonságos helyre menteni.</p></div>
     <div class="field"><span class="label">Jelszó módosítása</span>
       <form id="pf"><input class="input" id="pc" type="password" autocomplete="current-password" autocapitalize="off" placeholder="Jelenlegi jelszó" required>
-      <input class="input" id="pn" type="password" autocomplete="new-password" autocapitalize="off" placeholder="Új jelszó (legalább 8 karakter)" minlength="8" required style="margin-top:8px">
-      <input class="input" id="pn2" type="password" autocomplete="new-password" autocapitalize="off" placeholder="Új jelszó mégegyszer" required style="margin-top:8px">
+      <input class="input mt-8" id="pn" type="password" autocomplete="new-password" autocapitalize="off" placeholder="Új jelszó (legalább 8 karakter)" minlength="8" required>
+      <input class="input mt-8" id="pn2" type="password" autocomplete="new-password" autocapitalize="off" placeholder="Új jelszó mégegyszer" required>
       <div id="pmsg"></div><button class="btn ghost" type="submit">Jelszó módosítása</button></form></div>
     <div class="field"><a class="btn ghost" style="text-decoration:none;margin-top:0" href="#/naplo">Napló megtekintése</a></div>
     <div class="field"><span class="label">Nyári beosztás</span><a class="btn ghost" style="text-decoration:none;margin-top:0" href="#/nyari-beosztas">Nyári munkabeosztás-készítő</a></div>
@@ -722,9 +722,9 @@ async function viewSettings() {
       <p class="tabs-note" style="margin:0 0 8px">Egy héttel a névnap előtt értesítést kapsz ezen az eszközön. Eszközönként külön kell bekapcsolni.</p>
       <div id="pstat" class="tabs-note" style="margin:0 0 8px"></div>
       <div class="row"><button class="btn small" type="button" id="pon">Bekapcsolás</button><button class="btn ghost small" type="button" id="ptest" hidden>Teszt értesítés</button><button class="btn ghost small" type="button" id="poff" hidden>Kikapcsolás</button></div></div>
-    <div class="field"><span class="label">Verzió</span><p class="tabs-note" id="ver" style="margin:0">Betöltés…</p></div>
+    <div class="field"><span class="label">Verzió</span><p class="tabs-note m-0" id="ver">Betöltés…</p></div>
     <div class="field"><span class="label">Telepítés a telefonra</span>
-      <p class="tabs-note" style="margin:0">iPhone: Safari → Megosztás → <b>Főképernyőhöz adás</b>. Android: Chrome → ⋮ menü → <b>Alkalmazás telepítése</b>.</p></div>
+      <p class="tabs-note m-0">iPhone: Safari → Megosztás → <b>Főképernyőhöz adás</b>. Android: Chrome → ⋮ menü → <b>Alkalmazás telepítése</b>.</p></div>
     <div class="field"><button class="btn ghost" id="out" type="button">Kijelentkezés</button></div>${nav('set')}`;
   const $ = (id) => document.getElementById(id);
   document.querySelectorAll('[data-ng]').forEach((b) => (b.onclick = () => {
@@ -743,10 +743,10 @@ async function viewSettings() {
     if (st === 'parked') {
       const row = b.closest('.set-item');
       row.querySelector('.inact').outerHTML = `<form class="parkf"><span class="label">Miért parkoltatod?</span>
-        <div class="quick chips" style="margin-top:0">${['GYES', 'GYED', 'Tartós betegség', 'Fizetés nélküli szabadság'].map((t) => `<button type="button" data-pr="${t}">${t}</button>`).join('')}</div>
-        <input class="input" name="note" maxlength="80" placeholder="Megjegyzés (pl. GYES)" style="margin-top:8px">
-        <label class="label" style="margin-top:8px">Várható visszatérés (nem kötelező)</label><input class="input" type="date" name="until">
-        <div class="row" style="margin-top:8px"><button class="btn small" type="submit">Parkoltatás</button><button class="btn ghost small" type="button" data-no>Mégsem</button></div></form>`;
+        <div class="quick chips mt-0">${['GYES', 'GYED', 'Tartós betegség', 'Fizetés nélküli szabadság'].map((t) => `<button type="button" data-pr="${t}">${t}</button>`).join('')}</div>
+        <input class="input mt-8" name="note" maxlength="80" placeholder="Megjegyzés (pl. GYES)">
+        <label class="label mt-8">Várható visszatérés (nem kötelező)</label><input class="input" type="date" name="until">
+        <div class="row mt-8"><button class="btn small" type="submit">Parkoltatás</button><button class="btn ghost small" type="button" data-no>Mégsem</button></div></form>`;
       const f = row.querySelector('.parkf');
       f.querySelectorAll('[data-pr]').forEach((c) => (c.onclick = () => { f.note.value = c.dataset.pr; }));
       f.querySelector('[data-no]').onclick = () => viewSettings();
@@ -803,7 +803,7 @@ async function viewSettings() {
       return { name, g, min, err, fnm };
     });
     const ok = parsed.filter((r) => !r.err);
-    $('bprev').innerHTML = `<div class="entries" style="margin-top:10px">${parsed.map((r) => `<div class="entry ${r.err ? 'dim' : ''}"><div class="meta"><b>${esc(r.name || '—')}</b><span>${r.err ? `<em class="status warn">${esc(r.err)}</em>` : `${esc(r.g?.name || '')} · nyitó: ${fmt(r.min || 0)}`}</span></div></div>`).join('')}</div>
+    $('bprev').innerHTML = `<div class="entries mt-10">${parsed.map((r) => `<div class="entry ${r.err ? 'dim' : ''}"><div class="meta"><b>${esc(r.name || '—')}</b><span>${r.err ? `<em class="status warn">${esc(r.err)}</em>` : `${esc(r.g?.name || '')} · nyitó: ${fmt(r.min || 0)}`}</span></div></div>`).join('')}</div>
       <p class="tabs-note">${ok.length} felvehető, ${parsed.length - ok.length} hibás (kimarad).</p>
       ${ok.length ? `<button class="btn" type="button" id="bgo">${ok.length} dolgozó felvétele</button>` : ''}`;
     const go = document.getElementById('bgo');
@@ -901,7 +901,7 @@ async function viewReportForm(q) {
   const useGroups = groups.filter((g) => active.some((w) => gidsOf(w).includes(g.id)));
   $app.innerHTML = `
     <div class="topbar"><h2>Kimutatás</h2></div>
-    <div class="seg" style="margin-top:10px"><a class="segl on" href="#/kimutatas">Túlóra</a><a class="segl" href="#/kimutatas/szabadsag">Szabadság</a></div>
+    <div class="seg mt-10"><a class="segl on" href="#/kimutatas">Túlóra</a><a class="segl" href="#/kimutatas/szabadsag">Szabadság</a></div>
     <form id="f">
     <div class="field"><span class="label">Forma</span><div class="seg">
       <button type="button" data-mode="sheets" aria-pressed="true">Dolgozónként (aláírásra)</button>
@@ -910,7 +910,7 @@ async function viewReportForm(q) {
       ${useGroups.length ? `<optgroup label="Munkakör">${useGroups.map((g) => `<option value="g${g.id}"${pre === `g${g.id}` ? ' selected' : ''}>${esc(g.name)} (${active.filter((w) => gidsOf(w).includes(g.id)).length})</option>`).join('')}</optgroup>` : ''}
       <optgroup label="Dolgozó">${active.map((w) => `<option value="${w.id}"${String(w.id) === pre ? ' selected' : ''}>${esc(w.name)}</option>`).join('')}</optgroup>
       ${workers.some((w) => w.active === 2) ? `<optgroup label="Parkoltatott">${workers.filter((w) => w.active === 2).map((w) => `<option value="${w.id}"${String(w.id) === pre ? ' selected' : ''}>${esc(w.name)} (${esc(w.park_note || 'parkoltatva')})</option>`).join('')}</optgroup>` : ''}</select></div>
-    <div class="field"><span class="label">Időszak</span><div class="quick" style="margin-top:0">
+    <div class="field"><span class="label">Időszak</span><div class="quick mt-0">
       <button type="button" data-p="week">Ez a hét</button><button type="button" data-p="lastweek">Múlt hét</button>
       <button type="button" data-p="month">Ez a hónap</button><button type="button" data-p="lastmonth">Múlt hónap</button></div></div>
     <div class="field"><div class="row">
@@ -965,8 +965,8 @@ async function viewReportPrint(q) {
   const unsigned = r.sheets.filter((s) => !s.signed);
   const bulk = r.sheets.length > 1 ? `<div class="bulk"><span class="label">Aláírások jelölése</span>${unsigned.length ? `
       <div class="checks">${unsigned.map((s) => `<label class="check"><input type="checkbox" data-bw="${s.worker.id}" checked><span>${esc(s.worker.name)}</span></label>`).join('')}</div>
-      <div class="row" style="margin-top:8px"><input class="input" type="date" id="bd" value="${r.today}"><button class="btn small" id="bgo" type="button">Kijelöltek aláírva</button></div>
-      <p class="tabs-note" style="margin-top:6px">Vedd ki a pipát attól, aki még nem írta alá.</p>` : '<p class="tabs-note" style="margin:0">Mindenki aláírta ezt a kimutatást.</p>'}</div>` : '';
+      <div class="row mt-8"><input class="input" type="date" id="bd" value="${r.today}"><button class="btn small" id="bgo" type="button">Kijelöltek aláírva</button></div>
+      <p class="tabs-note mt-6">Vedd ki a pipát attól, aki még nem írta alá.</p>` : '<p class="tabs-note m-0">Mindenki aláírta ezt a kimutatást.</p>'}</div>` : '';
   $app.innerHTML = `<div class="noprint"><div class="topbar"><a class="back" href="#/kimutatas" aria-label="Vissza">${ICONS.back}</a><h2>${r.sheets.length} oldal · ${esc(r.scope.name)}</h2></div>
     <button class="btn" id="print" type="button" style="margin-bottom:10px">Nyomtatás / PDF mentése</button>
     <a class="btn ghost" style="text-decoration:none;margin:0 0 16px" href="/api/report.csv?kind=entries&from=${r.from}&to=${r.to}&worker=${encodeURIComponent(q.get('w') || 'all')}" download>Tételek táblázata (Excel, CSV)</a>${bulk}</div>
@@ -1050,9 +1050,9 @@ async function viewCalendar(q) {
     const h = HOL.get(date); const dow = new Date(date + 'T12:00:00').getDay();
     const dayNote = h ? `<p class="holnote"><b>${esc(h.label || (h.kind === 'off' ? 'Szabadnap' : 'Munkanap'))}</b>${h.kind === 'work' ? ' · ledolgozandó munkanap' : ' · munkaszüneti nap'}</p>` : dow === 0 || dow === 6 ? '<p class="holnote">Hétvége</p>' : '';
     const lv = byLeave[date] || [];
-    const lvHtml = lv.length ? `<span class="label" style="margin-top:6px">Szabadságon</span>${lv.map((e) => `<a href="#/szabadsag/${e.worker_id}"><b>egész nap</b><span>${esc(e.name)}</span><em></em></a>`).join('')}` : '';
-    const stHtml = list.length ? `<span class="label" style="margin-top:6px">Szabadidő</span>${list.map((e) => `<a href="#/dolgozo/${e.worker_id}"><b>${fmt(-e.minutes)}</b><span>${esc(e.name)}${e.note ? ` · ${esc(e.note)}` : ''}</span><em></em></a>`).join('')}` : '';
-    box.innerHTML = `<span class="label">${fullDate(date)}</span>${dayNote}${lvHtml}${stHtml}${!lv.length && !list.length ? '<p class="tabs-note" style="margin:0">Ezen a napon senki nincs távol.</p>' : ''}`;
+    const lvHtml = lv.length ? `<span class="label mt-6">Szabadságon</span>${lv.map((e) => `<a href="#/szabadsag/${e.worker_id}"><b>egész nap</b><span>${esc(e.name)}</span><em></em></a>`).join('')}` : '';
+    const stHtml = list.length ? `<span class="label mt-6">Szabadidő</span>${list.map((e) => `<a href="#/dolgozo/${e.worker_id}"><b>${fmt(-e.minutes)}</b><span>${esc(e.name)}${e.note ? ` · ${esc(e.note)}` : ''}</span><em></em></a>`).join('')}` : '';
+    box.innerHTML = `<span class="label">${fullDate(date)}</span>${dayNote}${lvHtml}${stHtml}${!lv.length && !list.length ? '<p class="tabs-note m-0">Ezen a napon senki nincs távol.</p>' : ''}`;
   };
   document.querySelectorAll('[data-day]').forEach((b) => (b.onclick = () => show(b.dataset.day)));
   if (byDay[srvToday] || byLeave[srvToday]) show(srvToday);
@@ -1180,7 +1180,7 @@ async function leaveCalendar(el, opts = {}) {
       el.querySelectorAll('[data-lc]').forEach((b) => b.classList.toggle('sel', b.dataset.lc === date));
       if (opts.workerId) return;
       const box = el.querySelector('.lc-day'); const lv = byDay[date] || []; box.hidden = false;
-      box.innerHTML = `<span class="label">${fullDate(date)}</span>${lv.length ? lv.map((e) => `<a href="#/szabadsag/${e.worker_id}"><b>${date <= t ? 'kivett' : 'tervezett'}</b><span>${esc(e.name)}</span><em></em></a>`).join('') : '<p class="tabs-note" style="margin:0">Ezen a napon senki nincs szabadságon.</p>'}`;
+      box.innerHTML = `<span class="label">${fullDate(date)}</span>${lv.length ? lv.map((e) => `<a href="#/szabadsag/${e.worker_id}"><b>${date <= t ? 'kivett' : 'tervezett'}</b><span>${esc(e.name)}</span><em></em></a>`).join('') : '<p class="tabs-note m-0">Ezen a napon senki nincs szabadságon.</p>'}`;
     };
     el.querySelectorAll('[data-lc]').forEach((b) => (b.onclick = () => showDay(b.dataset.lc)));
     if (picked && months.some((m) => picked.startsWith(m))) showDay(picked);
@@ -1210,11 +1210,11 @@ async function viewLeave(q) {
       <div class="pills"><span class="pill">${workers.length} dolgozó</span>${totalPlanned ? `<span class="pill">${totalPlanned} tervezett nap</span>` : ''}</div></div>
     ${yearNav(year, '/szabadsag')}
     ${noBudget ? `<p class="tabs-note">${noBudget} dolgozónál még nincs megadva a ${year}. évi szabadság-keret. Koppints a dolgozóra, és add meg.</p>` : ''}
-    <div class="seg" style="margin-top:12px"><a class="segl ${q.get('v') === 'naptar' ? '' : 'on'}" href="#/szabadsag?y=${year}">Lista</a><a class="segl ${q.get('v') === 'naptar' ? 'on' : ''}" href="#/szabadsag?y=${year}&v=naptar">Naptár</a></div>
-    ${q.get('v') === 'naptar' ? '<div id="lcal" style="margin-top:12px"></div>' : `
+    <div class="seg mt-12"><a class="segl ${q.get('v') === 'naptar' ? '' : 'on'}" href="#/szabadsag?y=${year}">Lista</a><a class="segl ${q.get('v') === 'naptar' ? 'on' : ''}" href="#/szabadsag?y=${year}&v=naptar">Naptár</a></div>
+    ${q.get('v') === 'naptar' ? '<div id="lcal" class="mt-12"></div>' : `
     <label class="search">${ICONS.search}<input id="q" type="search" placeholder="Név keresése" aria-label="Név keresése"></label>
     ${usedGroups.length ? `<div class="quick chips" id="gf"><button type="button" data-g="0" aria-pressed="true">Mindenki</button>${usedGroups.map((g) => `<button type="button" data-g="${g.id}">${esc(g.name)}</button>`).join('')}</div>` : ''}
-    <div class="items" id="l" style="margin-top:12px"></div>`}
+    <div class="items mt-12" id="l"></div>`}
     <a class="fab" href="#/szabadsag/uj?y=${year}">${ICONS.plus}Szabadság</a>${nav('leave')}`;
   if (q.get('v') === 'naptar') {
     const now = today(); const start = Number(now.slice(0, 4)) === year ? now.slice(0, 7) : `${year}-01`;
@@ -1253,11 +1253,11 @@ async function viewLeaveWorker(id, q) {
     <form id="bf" class="yearcard"><span class="label">Éves keret (nap)</span>
       <div class="row"><div style="flex:1;min-width:0"><label class="label" for="be">Alapkeret</label><input class="input" id="be" type="number" inputmode="numeric" min="0" max="366" value="${budget.entitlement}"></div>
         <div style="flex:1;min-width:0"><label class="label" for="bc">Átvitt az előző évből</label><input class="input" id="bc" type="number" inputmode="numeric" min="-366" max="366" value="${budget.carry}"></div></div>
-      ${prevRem !== null && prevRem > 0 && !budget.carry ? `<button type="button" class="btn ghost small" id="carry" style="margin-top:8px">Átvitel az előző évből (${prevRem} nap)</button>` : ''}
-      <button class="btn small" type="submit" style="margin-top:10px">Keret mentése</button></form>
+      ${prevRem !== null && prevRem > 0 && !budget.carry ? `<button type="button" class="btn ghost small mt-8" id="carry">Átvitel az előző évből (${prevRem} nap)</button>` : ''}
+      <button class="btn small mt-10" type="submit">Keret mentése</button></form>
     <div class="field"><span class="label">Naptár</span><div id="lcal"></div></div>
     <div class="field"><span class="label">Kivett szabadságok</span>${ranges.length ? `<div class="entries">${ranges.map((r) => `<div class="entry"><div class="bal pos">${nap(r.days)}</div>
-      <div class="meta"><b>${rangeText(r)}</b><span>${r.note ? esc(r.note) : r.to > t ? 'tervezett' : 'kivett'}</span></div><button class="undo" data-delr="${r.ids.join(',')}">Törlés</button></div>`).join('')}</div>` : '<p class="tabs-note" style="margin:0">Ebben az évben még nincs rögzített szabadság.</p>'}</div>${nav('leave')}`;
+      <div class="meta"><b>${rangeText(r)}</b><span>${r.note ? esc(r.note) : r.to > t ? 'tervezett' : 'kivett'}</span></div><button class="undo" data-delr="${r.ids.join(',')}">Törlés</button></div>`).join('')}</div>` : '<p class="tabs-note m-0">Ebben az évben még nincs rögzített szabadság.</p>'}</div>${nav('leave')}`;
   const $ = (x) => document.getElementById(x);
   $('bf').onsubmit = async (e) => {
     e.preventDefault();
@@ -1286,12 +1286,12 @@ async function viewLeaveNew(q) {
     <form id="f">
     <div class="field"><label for="w">Dolgozó</label><select class="input" id="w">${active.map((w) => `<option value="${w.id}">${esc(w.name)}</option>`).join('')}</select></div>
     <div class="field"><span class="label">Melyik napokra? (tól–ig)</span>
-      <div class="calhead" style="margin-top:0"><button type="button" class="back" data-cm="-1" aria-label="Előző hónap">${ICONS.back}</button><b id="cmt"></b>
+      <div class="calhead mt-0"><button type="button" class="back" data-cm="-1" aria-label="Előző hónap">${ICONS.back}</button><b id="cmt"></b>
         <button type="button" class="back" data-cm="1" aria-label="Következő hónap" style="transform:scaleX(-1)">${ICONS.back}</button></div>
       <div class="calgrid pick" id="cpick"></div>
       <p class="tabs-note" id="dsum"></p>
       <label class="check"><input type="checkbox" id="wk" checked><span>Hétvégék és munkaszüneti napok kihagyása</span></label>
-      <div class="quick chips" id="days" style="margin-top:0" hidden></div></div>
+      <div class="quick chips mt-0" id="days" hidden></div></div>
     <div class="field"><label for="n">Megjegyzés (nem kötelező)</label><input class="input" id="n" maxlength="120" placeholder="Pl. téli szünet"></div>
     <div class="preview"><span id="pl">Maradék</span><span id="pv"></span></div>
     <div id="msg"></div></form><div class="savebar"><button class="btn" id="save" type="submit" form="f">Mentés</button></div>`;
@@ -1369,7 +1369,7 @@ async function viewLeaveReportForm() {
   const selMonth = y0 === now.getFullYear() ? now.getMonth() : 0;
   $app.innerHTML = `
     <div class="topbar"><h2>Kimutatás</h2></div>
-    <div class="seg" style="margin-top:10px"><a class="segl" href="#/kimutatas">Túlóra</a><a class="segl on" href="#/kimutatas/szabadsag">Szabadság</a></div>
+    <div class="seg mt-10"><a class="segl" href="#/kimutatas">Túlóra</a><a class="segl on" href="#/kimutatas/szabadsag">Szabadság</a></div>
     <form id="f">
     <div class="field"><span class="label">Forma</span><div class="seg"><button type="button" data-mode="sum" aria-pressed="true">Összesítő (mindenki egyben)</button><button type="button" data-mode="each" aria-pressed="false">Dolgozónként</button></div></div>
     <div class="field"><label for="w">Kiknek</label><select class="input" id="w"><option value="all">Mindenki (${active.length} dolgozó)</option>
@@ -1414,14 +1414,14 @@ async function viewLeaveReport(q) {
     body = r.rows.map((x) => {
       const list = x.dates.map((d, i) => ({ id: i, date: d })); const ranges = leaveRanges(list);
       const trs = ranges.map((g) => `<tr><td>${rangeText(g)}</td><td class="r">${g.days}</td></tr>`).join('');
-      const monthly = month ? '' : `<div class="tw"><table class="sum leave" style="margin-top:12px"><thead><tr>${MS.map((m) => `<th class="r">${m}</th>`).join('')}</tr></thead><tbody><tr>${x.by_month.map((n) => `<td class="r">${n || '–'}</td>`).join('')}</tr></tbody></table></div>`;
+      const monthly = month ? '' : `<div class="tw"><table class="sum leave mt-12"><thead><tr>${MS.map((m) => `<th class="r">${m}</th>`).join('')}</tr></thead><tbody><tr>${x.by_month.map((n) => `<td class="r">${n || '–'}</td>`).join('')}</tr></tbody></table></div>`;
       return `<section class="sheet">${head}<h3>Szabadság-kimutatás</h3>
         <div class="facts"><div><small>Dolgozó</small><b>${esc(x.worker.name)}</b></div><div><small>Időszak</small><b>${period}</b></div>
           <div><small>Éves keret</small><b>${x.entitlement}${x.carry ? ` + ${x.carry} átvitt` : ''} = ${x.total} nap</b></div><div><small>Maradék${month ? ' (hónap végén)' : ''}</small><b>${x.remaining} nap</b></div></div>
         <table><thead><tr><th>Időszak</th><th class="r">Napok</th></tr></thead><tbody>${trs || '<tr><td colspan="2" class="none">Az időszakban nem volt szabadság.</td></tr>'}</tbody></table>
         ${monthly}
         <div class="total"><span>${month ? 'Kivett a hónapban' : 'Kivett az évben'}</span><b>${x.used_period} nap</b></div>
-        ${month ? `<p class="unit" style="margin-top:8px">Év eleje óta összesen: ${x.used_ytd} nap${x.planned_after ? ` · a hónap után tervezett: ${x.planned_after} nap` : ''}.</p>` : ''}
+        ${month ? `<p class="unit mt-8">Év eleje óta összesen: ${x.used_ytd} nap${x.planned_after ? ` · a hónap után tervezett: ${x.planned_after} nap` : ''}.</p>` : ''}
         <div class="foot"><span>Az értékek napokban szerepelnek.</span><span></span></div></section>`;
     }).join('') || '<p class="empty">Nincs dolgozó a kimutatáshoz.</p>';
   }
@@ -1440,7 +1440,7 @@ async function route() {
     $app.classList.toggle('wide', path.startsWith('/kimutatas/') && path !== '/kimutatas/szabadsag');
     // Nyári beosztás: külön modul (public/nyar/), csak megnyitáskor töltődik be
     $app.classList.toggle('nyar', path.startsWith('/nyari-beosztas'));
-    if (path.startsWith('/nyari-beosztas')) return await (await import('/nyar/index.js')).mount($app, { api, toast, esc, path, q, nav: () => nav('nyar') });
+    if (path.startsWith('/nyari-beosztas')) return await (await import('/nyar/index.js')).mount($app, { api, toast, esc, path, q, nav: () => nav('nyar'), icons: ICONS });
     if (path === '/uj') return await viewNew(q.get('w'));
     if (path === '/szabadsag') return await viewLeave(q);
     if (path === '/szabadsag/uj') return await viewLeaveNew(q);

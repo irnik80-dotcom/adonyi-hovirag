@@ -1,16 +1,11 @@
 [hidden]{display:none!important}
 :root{
-  --bg:#EEF3EC;--surface:#fff;--surface-2:#E3ECE0;--ink:#16261F;--ink-2:#5B6B62;--line:#D5DFD2;
-  --green:#1E4D3B;--green-ink:#F2F7EE;--lime:#CFEA6A;--coral:#FF6F4E;--coral-ink:#fff;--pill:rgba(255,255,255,.16);
-  --pos-bg:#DCEFD0;--pos-fg:#1E4D3B;--zero-bg:#E7EAE5;--zero-fg:#5B6B62;--neg-bg:#FFE0D8;--neg-fg:#B23A1E;
-  --font-d:"Bricolage Grotesque","Plus Jakarta Sans",system-ui,sans-serif;
-  --font-b:"Plus Jakarta Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  /* téma: egyetlen réteg (korábban v1 + v7 egymásra rétegezve) */
+  --bg:#E8F0E5;--surface:#FFFFFF;--surface-2:#DCE8D9;--ink:#12261D;--ink-2:#5D7064;--line:#D3E2D0;--green:#12382A;--green-ink:#EAF5E4;--lime:#CFEA6A;--coral:#E0553A;--coral-ink:#fff;--pill:rgba(255,255,255,.16);--pos-bg:#DCEFD0;--pos-fg:#1E4D3B;--zero-bg:#E7EAE5;--zero-fg:#5B6B62;--neg-bg:#FFE0D8;--neg-fg:#B23A1E;--font-d:"Manrope","Plus Jakarta Sans",system-ui,sans-serif;--font-b:"Manrope","Plus Jakarta Sans",system-ui,sans-serif;--track:#D3E2D0;--bar:#2B7A58;--bar-hi:#E8793F;--neg:#E0553A;--hero:#12382A;--hero-ink:#EAF5E4;--s1:#CFEA6A;--s2:#8CC79A;--s3:#F4B8A0;--petal:#FFFFFF;--s4:#FFD98A;--s5:#D9C2F0;--warn-bg:#FFF1CC;--warn-fg:#6B4A00;--info-bg:#E3F0FF;--info-fg:#1D3B66;--r-s:10px;--r-m:14px;--r-l:18px;--r-xl:24px;
   color-scheme:light;
 }
 @media (prefers-color-scheme:dark){:root{
-  --bg:#0F1C16;--surface:#17281F;--surface-2:#1F3428;--ink:#EAF3E6;--ink-2:#9DB0A3;--line:#2A4234;
-  --green:#CFEA6A;--green-ink:#10241A;--pill:rgba(16,36,26,.14);
-  --pos-bg:#25402B;--pos-fg:#CFEA6A;--zero-bg:#26352C;--zero-fg:#9DB0A3;--neg-bg:#4A2A22;--neg-fg:#FFA58F;color-scheme:dark}}
+  --bg:#0B1A13;--surface:#13261C;--surface-2:#1B3426;--ink:#E6F2E8;--ink-2:#93A99A;--line:#1F3A2B;--green:#CFEA6A;--green-ink:#10241A;--pill:rgba(16,36,26,.14);--pos-bg:#25402B;--pos-fg:#CFEA6A;--zero-bg:#26352C;--zero-fg:#9DB0A3;--neg-bg:#4A2A22;--neg-fg:#FFA58F;--track:#1F3A2B;--bar:#6FD19B;--bar-hi:#FFA76B;--neg:#FF8A70;--hero:#CFEA6A;--hero-ink:#10241A;--s1:#12382A;--s2:#3F8F63;--s3:#E0553A;--petal:#E8F2E6;--s4:#F2B544;--s5:#A66CB8;--warn-bg:#3A3014;--warn-fg:#F2D28A;--info-bg:#1B2C42;--info-fg:#A9C8F0;color-scheme:dark}}
 *{box-sizing:border-box}
 html,body{margin:0;min-height:100%}
 body{background:var(--bg);color:var(--ink);font:15px/1.45 var(--font-b);
@@ -249,19 +244,8 @@ input[type=date].input::-webkit-date-and-time-value{text-align:left;margin:0}
 .parkf .label{margin-bottom:6px}
 
 /* ================= v7 · Sávok (új megjelenés) ================= */
-:root{
-  --bg:#E8F0E5;--surface:#FFFFFF;--surface-2:#DCE8D9;--ink:#12261D;--ink-2:#5D7064;--line:#D3E2D0;
-  --green:#12382A;--green-ink:#EAF5E4;--lime:#CFEA6A;--coral:#E0553A;--pill:rgba(255,255,255,.16);
-  --track:#D3E2D0;--bar:#2B7A58;--bar-hi:#E8793F;--neg:#E0553A;--hero:#12382A;--hero-ink:#EAF5E4;
-  --s1:#CFEA6A;--s2:#8CC79A;--s3:#F4B8A0;--petal:#FFFFFF;
-  --font-d:"Manrope","Plus Jakarta Sans",system-ui,sans-serif;
-  --font-b:"Manrope","Plus Jakarta Sans",system-ui,sans-serif;
-}
-@media (prefers-color-scheme:dark){:root{
-  --bg:#0B1A13;--surface:#13261C;--surface-2:#1B3426;--ink:#E6F2E8;--ink-2:#93A99A;--line:#1F3A2B;
-  --green:#CFEA6A;--green-ink:#10241A;--pill:rgba(16,36,26,.14);
-  --track:#1F3A2B;--bar:#6FD19B;--bar-hi:#FFA76B;--neg:#FF8A70;--hero:#CFEA6A;--hero-ink:#10241A;
-  --s1:#12382A;--s2:#3F8F63;--s3:#E0553A;--petal:#E8F2E6}}
+
+
 body{font-family:var(--font-b);font-size:15px}
 #app{position:relative}
 h1,h2,.hello h1{font-weight:800;letter-spacing:-.02em}
@@ -371,9 +355,7 @@ h1,h2,.hello h1{font-weight:800;letter-spacing:-.02em}
 .grp-h b{font-size:15px;font-weight:800}
 .grp-h span{font-size:12px;font-weight:700;color:var(--ink-2);font-variant-numeric:tabular-nums}
 
-/* munkakör-színek (5) a hero sávhoz */
-:root{--s4:#FFD98A;--s5:#D9C2F0}
-@media (prefers-color-scheme:dark){:root{--s4:#F2B544;--s5:#A66CB8}}
+
 .bulkimp{margin-top:18px}
 .bulkimp summary{list-style:none}
 
@@ -449,3 +431,11 @@ h1,h2,.hello h1{font-weight:800;letter-spacing:-.02em}
 .lc-d>span{line-height:1}
 .lc-d i{right:auto;left:50%;top:auto;bottom:1px;transform:translateX(-50%);font-size:8.5px;line-height:1;opacity:.9}
 .lc-d.n>span{transform:translateY(-3px)}
+
+/* ---------- közös segédosztályok (térköz) és űrlapelemek ---------- */
+.m-0{margin:0!important}.mt-0{margin-top:0!important}.mt-6{margin-top:6px!important}.mt-8{margin-top:8px!important}
+.mt-10{margin-top:10px!important}.mt-12{margin-top:12px!important}.mt-14{margin-top:14px!important}
+input[type=checkbox],input[type=radio]{accent-color:var(--green)}
+input[type=file]::file-selector-button{border:0;background:var(--surface-2);color:var(--ink);font:inherit;font-weight:700;font-size:14px;border-radius:var(--r-m);padding:9px 14px;margin-right:12px;cursor:pointer}
+input[type=file].input{padding:8px 10px;color:var(--ink-2);font-size:14px}
+.box-warn{background:var(--warn-bg);color:var(--warn-fg)}.box-info{background:var(--info-bg);color:var(--info-fg)}

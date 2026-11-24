@@ -100,8 +100,8 @@ async function viewPlans($app) {
   const { plans } = await C.api('/summer/plans');
   const y = new Date().getFullYear() + 1;
   $app.innerHTML = `
-    <div class="topbar"><h2>Nyári beosztás</h2></div>
-    <p class="tabs-note">Az óvoda nyári, váltott munkarendjének tervezése. A dolgozókat és munkaköröket a fő alkalmazásból veszi át, azokat nem módosítja.</p>
+    <div class="head"><div><small>Adonyi Hóvirág Óvoda</small><h1>Nyári beosztás</h1></div>${C.icons?.flowerArt || ''}</div>
+    <p class="tabs-note ny-head-note">Az óvoda nyári, váltott munkarendjének tervezése. A dolgozókat és munkaköröket a fő alkalmazásból veszi át, azokat nem módosítja.</p>
     <div class="field"><span class="label">Tervek</span>
       ${plans.length ? plans.map((p) => `<a class="set-item ny-plan" href="${BASE}/${p.id}"><span><b>${esc(p.name)}</b><small>Módosítva: ${esc(p.updated_at.slice(0, 16).replace('T', ' '))} UTC</small></span><em>${p.year}</em></a>`).join('') : '<p class="tabs-note">Még nincs terv.</p>'}
     </div>
@@ -198,11 +198,11 @@ function tabSettings(el) {
     <section class="field"><span class="label">Ünnepnapok és zárva tartás</span>
       ${hol.map((h) => `<div class="set-item"><span>${M.dotted(h.date)} · ${esc(h.label)}</span><em class="tabs-note">${h.kind === 'off' ? 'munkaszüneti nap' : 'ledolgozandó munkanap'} (fő app)</em></div>`).join('')}
       ${p.closed.map((c, i) => `<div class="set-item"><span>${M.dotted(c.date)} · ${esc(c.label || 'Zárva')}</span><button class="btn ghost small" data-delc="${i}" type="button">Törlés</button></div>`).join('')}
-      <form id="cf" style="margin-top:8px"><div class="row"><input class="input" type="date" id="cd" min="${p.period.from}" max="${p.period.to}" required aria-label="Dátum"><input class="input" id="cl" maxlength="60" placeholder="Megnevezés (pl. nevelés nélküli munkanap)"></div><button class="btn small" type="submit" style="margin-top:8px">Zárva tartási nap hozzáadása</button></form>
-      <form id="hf2" style="margin-top:14px"><span class="label">Áthelyezett munkanap / pihenőnap</span>
+      <form id="cf" class="mt-8"><div class="row"><input class="input" type="date" id="cd" min="${p.period.from}" max="${p.period.to}" required aria-label="Dátum"><input class="input" id="cl" maxlength="60" placeholder="Megnevezés (pl. nevelés nélküli munkanap)"></div><button class="btn small mt-8" type="submit">Zárva tartási nap hozzáadása</button></form>
+      <form id="hf2" class="mt-14"><span class="label">Áthelyezett munkanap / pihenőnap</span>
         <div class="row"><input class="input" type="date" id="hd2" required aria-label="Dátum"><select class="input" id="hk2" aria-label="Típus"><option value="work">Ledolgozandó munkanap (pl. szombat)</option><option value="off">Szabadnap (áthelyezett pihenőnap)</option></select></div>
-        <input class="input" id="hl2" maxlength="60" placeholder="Megnevezés (nem kötelező)" style="margin-top:8px">
-        <button class="btn small" type="submit" style="margin-top:8px">Hozzáadás</button>
+        <input class="input mt-8" id="hl2" maxlength="60" placeholder="Megnevezés (nem kötelező)">
+        <button class="btn small mt-8" type="submit">Hozzáadás</button>
         <p class="tabs-note">Ez a fő alkalmazás naptárába kerül (Beállítások → „Munkaszüneti napok és áthelyezett munkanapok”), így a plusz-mínusz nyilvántartás is ezt használja. Törölni is ott lehet.</p></form>
       <p class="tabs-note">A törvényi ünnepeket és a fő alkalmazásban megadott speciális napokat automatikusan figyelembe veszi. Az itt megadott nap csak erre a tervre vonatkozik.</p></section>
     <section class="field"><span class="label">Működés</span>
@@ -213,7 +213,7 @@ function tabSettings(el) {
         <div class="row"><input class="input" data-rl="${i}" value="${esc(r.label)}" maxlength="40" aria-label="Munkakör neve">
           <span class="ny-act"><button type="button" class="ny-ic" data-rup="${i}" aria-label="Feljebb" ${i ? '' : 'disabled'}>↑</button><button type="button" class="ny-ic" data-rdn="${i}" aria-label="Lejjebb" ${i < p.roles.length - 1 ? '' : 'disabled'}>↓</button><button type="button" class="ny-ic" data-rdel="${i}" aria-label="Eltávolítás">✕</button></span></div>
         <small class="tabs-note">Fő app csoport: ${esc(groups.find((g) => g.id === r.group_id)?.name || 'törölt csoport')}</small>
-        <select class="input" data-rs="${i}" aria-label="Műszakrend" style="margin-top:6px"><option value="2" ${r.single ? '' : 'selected'}>Két műszak: délelőtt + délután</option><option value="1" ${r.single ? 'selected' : ''}>Egy műszak (napi „${esc(s.abbr.D || 'D')}” beosztás)</option></select>
+        <select class="input mt-6" data-rs="${i}" aria-label="Műszakrend"><option value="2" ${r.single ? '' : 'selected'}>Két műszak: délelőtt + délután</option><option value="1" ${r.single ? 'selected' : ''}>Egy műszak (napi „${esc(s.abbr.D || 'D')}” beosztás)</option></select>
         <table class="ny-tbl ny-roles"><thead><tr><th></th><th>Minimum</th><th>Tervezett</th></tr></thead><tbody>
         ${M.shiftsOf(r).map((sh) => `<tr><td>${sh === 'D' ? 'Napi létszám' : M.SHIFT_LABEL[sh]}</td><td>${num(`m-${i}-${sh}`, r.min[sh] ?? 0)}</td><td>${num(`o-${i}-${sh}`, r.opt[sh] ?? r.min[sh] ?? 0)}</td></tr>`).join('')}
         </tbody></table>
@@ -221,7 +221,7 @@ function tabSettings(el) {
         ${!r.single && p.roles.some((x) => x !== r) ? `<div class="row" style="margin-top:8px;align-items:center"><label class="ny-inl" for="sb-${i}">Helyettesítheti</label><select class="input" id="sb-${i}" data-sb="${i}"><option value="">senki</option>${p.roles.filter((x) => x !== r).map((x) => `<option value="${x.group_id}" ${r.subBy === x.group_id ? 'selected' : ''}>${esc(x.label)}</option>`).join('')}</select></div>
         ${r.subBy != null ? `<div class="row" style="margin-top:8px;align-items:center"><label class="ny-inl" for="mo-${i}">Saját dolgozó műszakonként legalább</label><input class="input ny-num" type="number" min="0" max="10" id="mo-${i}" data-mo="${i}" value="${r.minOwn ?? 1}"></div>
         <p class="tabs-note">A(z) ${esc(p.roles.find((x) => x.group_id === r.subBy)?.label || '')} a minimumba délelőtt és délután is beleszámít, de ${esc(r.label.toLowerCase())}ból műszakonként legalább ennyinek bent kell lennie.</p>` : ''}` : ''}</div>`).join('')}
-      ${unused.length ? `<div class="row" style="margin-top:8px"><select class="input" id="ra">${unused.map((g) => `<option value="${g.id}">${esc(g.name)}</option>`).join('')}</select><button class="btn small ghost" id="rab" type="button">Munkakör hozzáadása</button></div>` : ''}
+      ${unused.length ? `<div class="row mt-8"><select class="input" id="ra">${unused.map((g) => `<option value="${g.id}">${esc(g.name)}</option>`).join('')}</select><button class="btn small ghost" id="rab" type="button">Munkakör hozzáadása</button></div>` : ''}
       <p class="tabs-note"><b>Minimum</b>: ez alatt a beosztás nem érvényes (kötelező feltétel). <b>Tervezett</b>: a megcélzott létszám; e fölött a beosztott fő <i>többlet</i>, amit jóvá lehet hagyni. A sorrend a riport csoportsorrendje.</p></section>
     <section class="field"><span class="label">Várható gyereklétszám hetente</span>
       <div class="row" style="align-items:center"><label class="ny-inl" for="gm">Egy csoportba legfeljebb (gyerek)</label><input class="input ny-num" type="number" id="gm" min="5" max="40" value="${s.groupMax}"></div>
@@ -232,10 +232,10 @@ function tabSettings(el) {
     <section class="field"><span class="label">Jelölések (képernyő és PDF)</span>
       <div class="ny-codes">${Object.keys(CODE_LABEL).map((k) => `<div class="ny-code"><span class="ny-sw" style="background:${esc(s.colors[k])}">${esc(s.abbr[k])}</span><span>${CODE_LABEL[k]}</span>
         <input type="color" data-col="${k}" value="${esc(s.colors[k])}" aria-label="${CODE_LABEL[k]} színe"><input class="input ny-abbr" data-abbr="${k}" value="${esc(s.abbr[k])}" maxlength="4" aria-label="${CODE_LABEL[k]} rövidítése"></div>`).join('')}</div>
-      <button class="btn ghost small" id="cres" type="button" style="margin-top:8px">Alapértelmezett jelölések</button></section>
+      <button class="btn ghost small mt-8" id="cres" type="button">Alapértelmezett jelölések</button></section>
     <section class="field"><span class="label">Nyomtatási riport</span>
       <input class="input" id="rt" maxlength="80" value="${esc(s.report.title)}" aria-label="Riport fejléce">
-      <div class="row" style="margin-top:8px"><label class="ny-inl" for="rm">Margó (mm)</label><input class="input ny-num" type="number" id="rm" min="0" max="15" value="${s.report.margin_mm}"></div>
+      <div class="row mt-8"><label class="ny-inl" for="rm">Margó (mm)</label><input class="input ny-num" type="number" id="rm" min="0" max="15" value="${s.report.margin_mm}"></div>
       <label class="ny-chk"><input type="checkbox" id="rw" ${s.report.weekend_x ? 'checked' : ''}> Hétvége X-szel jelölve</label>
       <label class="ny-chk"><input type="checkbox" id="rp" ${s.report.period_only ? 'checked' : ''}> Csak a tervezési időszak napjai (különben a teljes hónap)</label>
       <p class="tabs-note">Nem minden nyomtató tud szegély nélkül nyomtatni; ha a széle lemarad, növeld a margót 5–8 mm-re.</p></section>`;
@@ -379,7 +379,7 @@ function prefMatrixHtml(p) {
       return `${head}<tr><th class="nm">${i + 1}. ${esc(a.name)}</th>${list.map((b) => { if (a.id === b.id) return '<td class="we"></td>'; const v = p.prefs?.[`${a.id}|${b.id}`] || '';
         return `<td class="pf ${v === 'I' ? 'pi' : v === 'N' ? 'pn' : 'p0'}" data-pa="${a.id}" data-pb="${b.id}" tabindex="0" role="button" aria-label="${esc(a.name)} – ${esc(b.name)}: ${v === 'I' ? 'szívesen' : v === 'N' ? 'nem szívesen' : 'semleges'}">${v || '0'}</td>`; }).join('')}</tr>`; }).join('')}
     </tbody></table></div>
-    ${n ? '<button class="btn ghost small" id="pclr" type="button" style="margin-top:8px">Összes jelölés törlése</button>' : ''}</section>`;
+    ${n ? '<button class="btn ghost small mt-8" id="pclr" type="button">Összes jelölés törlése</button>' : ''}</section>`;
 }
 function bindPrefMatrix(el, p) {
   const tbl = el.querySelector('.ny-pref'); if (!tbl) return;
@@ -430,13 +430,13 @@ function tabAbsences(el) {
     <section class="field"><span class="label">Importálás Excelből vagy CSV-ből</span>
       <p class="tabs-note">Oszlopok: <b>Dolgozóazonosító</b> (vagy <b>Dolgozó neve</b>), <b>Szabadság kezdete</b>, <b>Szabadság vége</b>, és nem kötelezően Típus (szabadság / egyéb), Státusz (igényelt / jóváhagyott), Megjegyzés. Egynapos szabadságnál a kezdő és a záró dátum ugyanaz. A sablonban már benne vannak a dolgozók és az azonosítóik.</p>
       <div class="ny-btns"><button class="btn ghost small" id="tpl" type="button">Kitöltendő sablon letöltése (Excel)</button></div>
-      <input class="input" id="if" type="file" accept=".xlsx,.xls,.csv,.txt" style="margin-top:8px" aria-label="Fájl kiválasztása">
+      <input class="input mt-8" id="if" type="file" accept=".xlsx,.xls,.csv,.txt" aria-label="Fájl kiválasztása">
       <div id="ipv">${pv ? importPreviewHtml(pv) : ''}</div></section>
     <section class="field"><span class="label">Távollét kézi felvétele</span>
       <form id="af"><select class="input" id="aw" required aria-label="Dolgozó">${opts}</select>
-        <div class="row" style="margin-top:8px"><input class="input" type="date" id="afr" required aria-label="Kezdete" min="${p.period.from}" max="${p.period.to}"><input class="input" type="date" id="ato" required aria-label="Vége" min="${p.period.from}" max="${p.period.to}"></div>
-        <div class="row" style="margin-top:8px"><select class="input" id="ak" aria-label="Típus"><option value="szabadsag">Szabadság</option><option value="beteg">Betegállomány</option><option value="pluszora">Szabadnap plusz órából</option><option value="egyeb">Egyéb távollét (pl. továbbképzés)</option></select><select class="input" id="as" aria-label="Státusz"><option value="igenyelt">Igényelt</option><option value="jovahagyott">Jóváhagyott</option></select></div>
-        <input class="input" id="an" maxlength="200" placeholder="Megjegyzés" style="margin-top:8px"><button class="btn small" type="submit" style="margin-top:8px">Hozzáadás</button></form></section>
+        <div class="row mt-8"><input class="input" type="date" id="afr" required aria-label="Kezdete" min="${p.period.from}" max="${p.period.to}"><input class="input" type="date" id="ato" required aria-label="Vége" min="${p.period.from}" max="${p.period.to}"></div>
+        <div class="row mt-8"><select class="input" id="ak" aria-label="Típus"><option value="szabadsag">Szabadság</option><option value="beteg">Betegállomány</option><option value="pluszora">Szabadnap plusz órából</option><option value="egyeb">Egyéb távollét (pl. továbbképzés)</option></select><select class="input" id="as" aria-label="Státusz"><option value="igenyelt">Igényelt</option><option value="jovahagyott">Jóváhagyott</option></select></div>
+        <input class="input mt-8" id="an" maxlength="200" placeholder="Megjegyzés"><button class="btn small mt-8" type="submit">Hozzáadás</button></form></section>
     <section class="field"><span class="label">Rögzített távollétek (${p.absences.length})</span>
       ${p.absences.length ? `<button class="btn ghost small" id="adelall" type="button">Összes importált törlése</button>` : ''}
       ${[...byW].sort((a, b) => (nameOf.get(a[0]) || '').localeCompare(nameOf.get(b[0]) || '', 'hu')).map(([wid, list]) => `
@@ -472,9 +472,9 @@ function importPreviewHtml(pv) {
     ${pv.issues.length ? `<ul class="ny-issues">${pv.issues.map((i) => `<li class="${i.level}">${i.row ? `${i.row}. sor: ` : ''}${esc(i.msg)}</li>`).join('')}</ul>` : ''}
     ${pv.records.length ? `<div class="ny-scroll"><table class="ny-tbl"><thead><tr><th>Sor</th><th>Dolgozó</th><th>Kezdete</th><th>Vége</th><th>Típus</th><th>Státusz</th></tr></thead><tbody>
       ${pv.records.slice(0, 200).map((r) => `<tr><td>${r.row}</td><td>${esc(r.name)}</td><td>${M.dotted(r.from)}</td><td>${M.dotted(r.to)}</td><td>${M.ABSENCE_KINDS[r.kind]}</td><td>${M.ABSENCE_STATUS[r.status]}</td></tr>`).join('')}</tbody></table></div>
-      <button class="btn small" id="iok" type="button" style="margin-top:8px">Importálás (${pv.records.length} távollét)</button>
+      <button class="btn small mt-8" id="iok" type="button">Importálás (${pv.records.length} távollét)</button>
       <p class="tabs-note">Az importálás lecseréli a korábban importált távolléteket; a kézzel felvettek megmaradnak. A dolgozói adatok nem változnak.</p>` : ''}
-    <button class="btn ghost small" id="icancel" type="button" style="margin-top:8px">Mégse</button></div>`;
+    <button class="btn ghost small mt-8" id="icancel" type="button">Mégse</button></div>`;
 }
 function bindImport() {
   const p = st.plan;
@@ -558,7 +558,7 @@ function tabGenerate(el) {
     ${conflicts.length ? conflictHtml(conflicts) : `<div class="ny-card ok">A minimumlétszám minden munkanapon biztosítható a megadott távollétek mellett.</div>`}
     <section class="field">
       <button class="btn" id="gen" type="button" ${conflicts.length || st.running ? 'disabled' : ''}>${st.running ? 'Számolás…' : `${p.settings.alternatives} változat generálása`}</button>
-      ${p.alternatives.some((a) => a.grid) ? '<button class="btn ghost small" id="gpdf" type="button" style="margin-top:8px">Összes változat egy PDF-ben</button>' : ''}
+      ${p.alternatives.some((a) => a.grid) ? '<button class="btn ghost small mt-8" id="gpdf" type="button">Összes változat egy PDF-ben</button>' : ''}
       <div id="gprog" class="tabs-note">${st.running && st.progress ? esc(st.progress) : ''}</div>
       <p class="tabs-note">Kötelező: minimumlétszám, távollétek, egy műszak naponta, saját munkakör${nLocks ? `, és a(z) <b>${nLocks} kézzel rögzített cella</b>` : ''}. ${M.allWork(p) ? ' Pihenőnap nélkül: aki nincs távol, dolgozik. Utána: azonos műszak a héten, a délelőttök és délutánok kiegyenlített aránya dolgozónként és naponta.' : ' Utána, fontossági sorrendben: ötnapos (hétfő–péntek) blokkok, azonos műszak a héten, a munkanapok arányos elosztása, kevés elszigetelt nap.'} Néhány tíz másodperc is lehet.</p></section>
     ${p.alternatives.some((a) => a.grid && (a.mode || 'pihenovel') !== (p.mode || 'mindenki')) ? '<div class="ny-card warn">A változatok a másik működési móddal készültek. Generálj újra.</div>' : ''}
@@ -746,7 +746,7 @@ function tabSchedule(el, q) {
     <p class="tabs-note ny-hint">${sel.on ? (sel.range ? 'Koppints egy dolgozó sorában a szakasz első, majd utolsó napjára (a hétvégék kimaradnak). Több szakasz is kijelölhető.' : 'Koppints a módosítandó cellákra; újra koppintva a kijelölés megszűnik.') : 'Koppints egy cellára a módosításhoz. A módosított cella rögzített (●): újrageneráláskor is megmarad.'}</p>
     ${gridHtml(p, p.schedule.grid, month, { editable: true, counts: v.counts, selected: sel.on ? sel.cells : null, anchor: sel.anchor })}
     ${legendHtml(p)}
-    ${nLocks ? `<button class="btn ghost small" id="unl" type="button" style="margin-top:10px">Összes rögzítés feloldása (${nLocks})</button>` : ''}`;
+    ${nLocks ? `<button class="btn ghost small mt-10" id="unl" type="button">Összes rögzítés feloldása (${nLocks})</button>` : ''}`;
   const act = (td) => (sel.on ? selectCell(td, el) : openCell(Number(td.dataset.w), td.dataset.d));
   el.querySelector('.ny-grid').addEventListener('click', (e) => { const td = e.target.closest('td[data-w]'); if (td) act(td); });
   el.querySelector('.ny-grid').addEventListener('keydown', (e) => { if (e.key !== 'Enter' && e.key !== ' ') return; const td = e.target.closest('td[data-w]'); if (td) { e.preventDefault(); act(td); } });
@@ -824,7 +824,7 @@ function openCell(wid, date) {
     <h3 id="nyst">${esc(w.name)}</h3><p class="tabs-note">${M.dotted(date)}, ${['vasárnap', 'hétfő', 'kedd', 'szerda', 'csütörtök', 'péntek', 'szombat'][M.dowOf(date)]} · ${esc(role?.label || '')}</p>
     ${a ? `<div class="ny-card bad">${M.ABSENCE_KINDS[a.kind]}: ${M.dotted(a.from)} – ${M.dotted(a.to)}. Erre a napra nem osztható be; ha mégis, az hibaként jelenik meg.</div>` : ''}
     <div class="seg ny-seg3" style="grid-template-columns:repeat(${opts.length},1fr)">${opts.map((c) => `<button type="button" data-set="${c}" aria-pressed="${cur === c}">${lbl[c]}</button>`).join('')}</div>
-    ${p.locks[key] ? '<button class="btn ghost small" type="button" id="cunl" style="margin-top:10px">Rögzítés feloldása (érték marad)</button>' : ''}
+    ${p.locks[key] ? '<button class="btn ghost small mt-10" type="button" id="cunl">Rögzítés feloldása (érték marad)</button>' : ''}
     ${mates.length ? `<div class="field"><label for="cswap">Csere egy kolléganővel ezen a napon</label><div class="row"><select class="input" id="cswap">${mates.map((m) => `<option value="${m.id}">${esc(m.name)} – ${lbl[valOf(m.id)]}</option>`).join('')}</select><button class="btn small" type="button" id="cswb">Csere</button></div></div>` : ''}
     <button class="btn ghost" type="button" id="ccl">Bezárás</button></div>`;
   document.body.append(dlg);
@@ -866,7 +866,7 @@ function tabCheck(el) {
       ${byType('shortage').map((s) => `<tr><td>${M.dotted(s.date)}</td><td>${M.SHIFT_LABEL[s.shift]}</td><td>${esc(s.role)}</td><td>${s.required}</td><td>${s.assigned}</td><td class="ny-red"><b>${s.missing}</b></td><td>${s.names.map(esc).join(', ') || '–'}</td></tr>`).join('')}</tbody></table></div></section>` : ''}
     ${byType('absent').length ? `<section class="field"><span class="label">Távollét napjára beosztva (${byType('absent').length})</span>${byType('absent').map((e) => `<div class="ny-conf">${esc(e.msg)}</div>`).join('')}</section>` : ''}
     ${others.length ? `<section class="field"><span class="label">Egyéb hiba</span>${others.map((e) => `<div class="ny-conf">${esc(e.msg)}</div>`).join('')}</section>` : ''}
-    ${v.warnings.filter((w) => w.type === 'idle').length ? `<section class="field"><span class="label">Nem dolgozik, de nincs távolléte (${v.warnings.filter((w) => w.type === 'idle').length})</span>${v.warnings.filter((w) => w.type === 'idle').map((w) => `<div class="ny-conf" style="background:#FFF1CC;color:#6B4A00">${esc(w.msg)}</div>`).join('')}<p class="tabs-note">Ha ez szabadnap plusz órából, rögzítsd a Távollétek fülön; ha kézzel adtál pihenőnapot, az nem figyelmeztet.</p></section>` : ''}
+    ${v.warnings.filter((w) => w.type === 'idle').length ? `<section class="field"><span class="label">Nem dolgozik, de nincs távolléte (${v.warnings.filter((w) => w.type === 'idle').length})</span>${v.warnings.filter((w) => w.type === 'idle').map((w) => `<div class="ny-conf box-warn">${esc(w.msg)}</div>`).join('')}<p class="tabs-note">Ha ez szabadnap plusz órából, rögzítsd a Távollétek fülön; ha kézzel adtál pihenőnapot, az nem figyelmeztet.</p></section>` : ''}
     <section class="field"><span class="label">${M.allWork(p) ? 'Létszám a tervezett fölött – tájékoztató' : 'Létszámtöbblet'} (${v.surplus.length})</span>
       ${M.allWork(p) && v.surplus.length ? '<p class="tabs-note">Pihenőnap nélkül a tervezettnél több ember szükségszerűen dolgozik; jóváhagyni nem kötelező.</p>' : ''}
       ${v.surplus.length ? v.surplus.map((s) => `<div class="ny-sur ${s.approved ? 'ok' : ''}">
