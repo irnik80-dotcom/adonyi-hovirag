@@ -710,6 +710,7 @@ async function viewSettings() {
     <div class="field"><span class="label">Adatok mentése</span>
       <a class="btn ghost" style="text-decoration:none;margin-top:0" href="/api/backup?format=csv" download>Táblázat letöltése (Excel, CSV)</a>
       <a class="btn ghost" style="text-decoration:none" href="#/mentesek">Biztonsági mentések és visszaállítás</a>
+      <a class="btn ghost mt-8" style="text-decoration:none" href="/v2/">Új felület kipróbálása (v2)</a>
       <p class="tabs-note">Az app minden éjjel automatikusan ment. Havonta egyszer érdemes egy mentést le is tölteni és a gépen is megőrizni.</p></div>
     <div class="field"><span class="label">Jelszó módosítása</span>
       <form id="pf"><input class="input" id="pc" type="password" autocomplete="current-password" autocapitalize="off" placeholder="Jelenlegi jelszó" required>
