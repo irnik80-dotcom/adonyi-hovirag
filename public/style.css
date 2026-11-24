@@ -441,3 +441,6 @@ input[type=checkbox],input[type=radio]{accent-color:var(--green)}
 input[type=file]::file-selector-button{border:0;background:var(--surface-2);color:var(--ink);font:inherit;font-weight:700;font-size:14px;border-radius:var(--r-m);padding:9px 14px;margin-right:12px;cursor:pointer}
 input[type=file].input{padding:8px 10px;color:var(--ink-2);font-size:14px}
 .box-warn{background:var(--warn-bg);color:var(--warn-fg)}.box-info{background:var(--info-bg);color:var(--info-fg)}
+.note-box{border-radius:var(--r-m);padding:12px 14px;font-size:14px}
+.bk-item{flex-wrap:wrap}
+.bk-item .row{width:100%;justify-content:flex-end}

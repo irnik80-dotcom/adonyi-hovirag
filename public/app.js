@@ -709,8 +709,8 @@ async function viewSettings() {
       <form id="tf" class="row mt-8"><input class="input" id="tt" maxlength="60" placeholder="Új gyors megjegyzés" required><button class="btn small" type="submit">Hozzáad</button></form></div>
     <div class="field"><span class="label">Adatok mentése</span>
       <a class="btn ghost" style="text-decoration:none;margin-top:0" href="/api/backup?format=csv" download>Táblázat letöltése (Excel, CSV)</a>
-      <a class="btn ghost" style="text-decoration:none" href="/api/backup" download>Teljes mentés letöltése (JSON)</a>
-      <p class="tabs-note">Havonta egyszer érdemes letölteni és egy biztonságos helyre menteni.</p></div>
+      <a class="btn ghost" style="text-decoration:none" href="#/mentesek">Biztonsági mentések és visszaállítás</a>
+      <p class="tabs-note">Az app minden éjjel automatikusan ment. Havonta egyszer érdemes egy mentést le is tölteni és a gépen is megőrizni.</p></div>
     <div class="field"><span class="label">Jelszó módosítása</span>
       <form id="pf"><input class="input" id="pc" type="password" autocomplete="current-password" autocapitalize="off" placeholder="Jelenlegi jelszó" required>
       <input class="input mt-8" id="pn" type="password" autocomplete="new-password" autocapitalize="off" placeholder="Új jelszó (legalább 8 karakter)" minlength="8" required>
@@ -1061,6 +1061,53 @@ async function viewCalendar(q) {
   if (byDay[srvToday] || byLeave[srvToday] || byPlus[srvToday]) show(srvToday);
 }
 
+/* ---------- biztonsági mentések ---------- */
+
+async function viewBackups() {
+  const { backups } = await api('/backups');
+  const KIND = { auto: 'Automatikus', manual: 'Kézi', restore: 'Visszaállítás előtti' };
+  const when = (s) => new Intl.DateTimeFormat('hu-HU', { timeZone: 'Europe/Budapest', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }).format(new Date(s.replace(' ', 'T') + 'Z'));
+  const kb = (n) => (n < 1024 * 1024 ? `${Math.max(1, Math.round(n / 1024))} KB` : `${(n / 1024 / 1024).toFixed(1)} MB`);
+  const last = backups.find((b) => b.kind === 'auto');
+  const ageH = last ? (Date.now() - Date.parse(last.at.replace(' ', 'T') + 'Z')) / 36e5 : Infinity;
+  $app.innerHTML = `<div class="topbar"><a class="back" href="#/beallitasok" aria-label="Vissza">${ICONS.back}</a><h2>Biztonsági mentések</h2></div>
+    <p class="tabs-note">Az app minden éjjel automatikusan elmenti a teljes adatbázist (dolgozók, tételek, szabadságok, nyári tervek, beállítások, napló). Megmarad az utolsó 30 napi mentés, és 12 hónapig havonta egy.</p>
+    ${ageH > 36 ? `<div class="box-warn note-box mt-10">${last ? `Az utolsó automatikus mentés ${when(last.at)}-kor készült, ez több mint másfél napja volt.` : 'Még nem készült automatikus mentés. Az első ma éjjel lesz; addig is készíts egy kézi mentést.'}</div>` : ''}
+    <button class="btn" id="bnow" type="button">Mentés most</button>
+    <div class="field mt-14"><span class="label">Mentések (${backups.length})</span>
+      <div class="entries m-0" id="bl">${backups.map((b) => `<div class="entry bk-item"><div class="meta"><b>${when(b.at)}</b><span>${KIND[b.kind] || b.kind} · ${b.rows} sor · ${kb(b.bytes)}</span></div>
+        <div class="row"><a class="btn ghost small" href="/api/backups/${b.id}/download" download>Letöltés</a><button class="btn ghost small" type="button" data-rs="${b.id}">Visszaállítás</button></div></div>`).join('') || '<p class="empty">Még nincs mentés.</p>'}</div></div>
+    <div class="field"><span class="label">Visszaállítás letöltött fájlból</span>
+      <input class="input" type="file" id="bf" accept=".json,application/json">
+      <p class="tabs-note">Csak az itt letöltött mentésfájl tölthető vissza. Visszaállítás előtt az app automatikusan elmenti a mostani állapotot, így a visszaállítás is visszavonható.</p></div>
+    ${nav('set')}`;
+  const busy = (b, on, t) => { b.disabled = on; if (t) b.textContent = t; };
+  document.getElementById('bnow').onclick = async (e) => {
+    busy(e.target, true, 'Mentés…');
+    try { const r = await api('/backups', { method: 'POST' }); toast(`Mentés kész (${r.rows} sor).`); viewBackups(); } catch (err) { toast(err.message); busy(e.target, false, 'Mentés most'); }
+  };
+  const doRestore = async (b, run) => {
+    if (b.dataset.armed !== '1') { b.dataset.armed = '1'; const t = b.textContent; b.textContent = 'Biztos? Minden adat erre az állapotra áll vissza'; setTimeout(() => { b.dataset.armed = ''; b.textContent = t; }, 4000); return; }
+    busy(b, true, 'Visszaállítás…');
+    try { const r = await run(); toast(`Visszaállítva: ${r.rows} sor. Az előző állapot mentése: #${r.safety}.`); viewBackups(); }
+    catch (err) { toast(err.message); busy(b, false, 'Visszaállítás'); b.dataset.armed = ''; }
+  };
+  document.querySelectorAll('[data-rs]').forEach((b) => (b.onclick = () => doRestore(b, () => api(`/backups/${b.dataset.rs}/restore`, { method: 'POST' }))));
+  document.getElementById('bf').onchange = async (e) => {
+    const f = e.target.files[0]; if (!f) return;
+    const box = document.createElement('div'); box.className = 'row mt-8';
+    box.innerHTML = `<button class="btn small" type="button">Visszaállítás ebből: ${esc(f.name)}</button>`;
+    e.target.after(box);
+    const b = box.firstElementChild;
+    b.onclick = () => doRestore(b, async () => {
+      const res = await fetch('/api/backups/file/restore', { method: 'POST', body: await f.text(), credentials: 'same-origin', headers: { 'content-type': 'application/json' } });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(d.error || 'Hiba történt.');
+      return d;
+    });
+  };
+}
+
 /* ---------- napló ---------- */
 
 async function viewAudit() {
@@ -1079,6 +1126,10 @@ async function viewAudit() {
       case 'holiday.delete': return `Speciális nap törölve: ${dotted(d.date)}`;
       case 'summer.create': return `Nyári beosztás terv létrehozva: ${esc(d.name)}`;
       case 'summer.delete': return `Nyári beosztás terv törölve: ${esc(d.name)}`;
+      case 'backup.auto': return `Automatikus biztonsági mentés (#${d.id}, ${d.rows} sor)`;
+      case 'backup.create': return `Kézi biztonsági mentés (#${d.id}, ${d.rows} sor)`;
+      case 'backup.restore': return `<b>Visszaállítás mentésből</b>: ${esc(d.from)} · ${d.rows} sor, ${d.tables} tábla (előtte mentve: #${d.safety})`;
+      case 'backup.fail': return `<b>Az automatikus mentés nem sikerült</b>: ${esc(d.error)}`;
       case 'push.sent': return `Névnap-értesítés elküldve (${d.sent} eszköz)`;
       case 'push.test': return `Teszt értesítés (${d.sent} eszköz)`;
       case 'push.subscribe': return 'Értesítés bekapcsolva egy eszközön';
@@ -1456,6 +1507,7 @@ async function route() {
     if (path === '/beallitasok') return await viewSettings();
     if (path === '/naptar') return await viewCalendar(q);
     if (path === '/naplo') return await viewAudit();
+    if (path === '/mentesek') return await viewBackups();
     const m = path.match(/^\/dolgozo\/(\d+)$/);
     if (m) return await viewWorker(m[1]);
     return await viewList();
