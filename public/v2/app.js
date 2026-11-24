@@ -20,8 +20,18 @@ const dShort = (s) => fmtD({ month: 'short', day: 'numeric' }).format(new Date(s
 const dLong = (s) => fmtD({ month: 'long', day: 'numeric', weekday: 'long' }).format(new Date(s + 'T12:00:00'));
 const dWeek = (s) => fmtD({ weekday: 'long' }).format(new Date(s + 'T12:00:00'));
 const monthTitle = (ym) => fmtD({ year: 'numeric', month: 'long' }).format(new Date(ym + '-15T12:00:00'));
-// dolgozónként állandó szín a monogramhoz (aranymetszés-szög: a szomszédos azonosítók is jól elkülönülnek)
-const hue = (id) => `--h:${Math.round((Number(id) * 137.508 + 150) % 360)}`;
+// Dolgozónként egyedi monogram-karika: 12 jól elkülönülő szín × 3 kivitel (halvány, telt, körvonalas) = 36 féle.
+// A sorszám az azonosító szerinti sorrend, így új dolgozó felvétele nem színezi át a többieket.
+const PAL = [['#D64545', '#FAD4D4', '#8A1F1F'], ['#3D6FE0', '#D6E2FA', '#1D3C85'], ['#2E9E5B', '#CFEFDB', '#17532F'], ['#E07B24', '#FBE0C8', '#8A4510'],
+  ['#A347C9', '#EDD6F5', '#5C1D75'], ['#13968C', '#C6EDE9', '#0B4F49'], ['#D4A514', '#F7EBB5', '#6E5300'], ['#DB4C97', '#F8D5E7', '#7F1F52'],
+  ['#1E9FD1', '#CDEBF7', '#0C5370'], ['#8C6239', '#EADBCB', '#4E341A'], ['#7CB518', '#E2F2C2', '#3F600A'], ['#6750D8', '#E0DAF8', '#362585']];
+const VAR = ['av-soft', 'av-solid', 'av-ring'];
+const RANK = new Map();
+const setRanks = (workers) => { [...workers].sort((a, b) => a.id - b.id).forEach((w, i) => RANK.set(w.id, i)); };
+const av = (id) => {
+  const i = RANK.get(Number(id)) ?? Number(id); const [c, s, f] = PAL[i % 12];
+  return `class="ini ${VAR[Math.floor(i / 12) % 3]}" style="--c:${c};--s:${s};--f:${f}"`;
+};
 const initials = (n) => n.split(/\s+/).filter(Boolean).slice(0, 2).map((p) => p[0].toUpperCase()).join('');
 const gidsOf = (w) => (w.group_ids ? String(w.group_ids).split(',').map(Number) : []);
 const uuid = () => (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`);
@@ -40,6 +50,11 @@ function toast(msg, action) {
 }
 
 async function api(path, opts = {}) {
+  const data = await apiRaw(path, opts);
+  if (path === '/workers' && data.workers) setRanks(data.workers);
+  return data;
+}
+async function apiRaw(path, opts = {}) {
   let res;
   try {
     res = await fetch('/api' + path, {
@@ -97,7 +112,7 @@ const nav = (on) => `<nav class="v2nav" aria-label="Fő menü">
   <a href="#/tobb" class="${on === 'more' ? 'on' : ''}">${I.more}<span>Továbbiak</span></a></nav>`;
 const head = (title, sub = 'Adonyi Hóvirág Óvoda', extra = '') => `<div class="head"><div><small>${esc(sub)}</small><h1>${esc(title)}</h1>${extra}</div>${I.flower}</div>`;
 const topbar = (title, back = '#/') => `<div class="topbar"><a class="back" href="${back}" aria-label="Vissza">${I.back}</a><h2>${esc(title)}</h2></div>`;
-const absRow = (a) => `<a class="v-row" href="#/ember/${a.worker_id}"><span class="ini" style="${hue(a.worker_id)}">${esc(initials(a.name))}</span><b>${esc(a.name)}</b><em class="tag ${KIND[a.k].c}">${a.k === 'leave' ? 'szabadság' : `${KIND[a.k].t.toLowerCase()} ${fmt(Math.abs(a.minutes))}`}</em></a>`;
+const absRow = (a) => `<a class="v-row" href="#/ember/${a.worker_id}"><span ${av(a.worker_id)}>${esc(initials(a.name))}</span><b>${esc(a.name)}</b><em class="tag ${KIND[a.k].c}">${a.k === 'leave' ? 'szabadság' : `${KIND[a.k].t.toLowerCase()} ${fmt(Math.abs(a.minutes))}`}</em></a>`;
 
 // egy nap távollétei a naptár-adatokból
 function absOn(cal, date) {
@@ -154,7 +169,7 @@ async function viewToday() {
   const tomorrowLabel = tomorrow === addDays(t, 1) ? 'Holnap' : `${dWeek(tomorrow)[0].toUpperCase()}${dWeek(tomorrow).slice(1)}`;
   $app.innerHTML = `${head('Ma', 'Adonyi Hóvirág Óvoda', `<p class="v-date">${esc(dLong(t))}${isOff(t) ? ' · <b>szünnap</b>' : ''}</p>`)}
     ${nd.length || w.nameday_next ? `<section class="v-card v-nd"><div class="v-h"><b>Névnapok</b><span>következő 7 nap</span></div>
-      ${nd.length ? `<div class="v-rows">${nd.map((n) => `<a class="v-row${n.in_days === 0 ? ' today' : ''}" href="#/ember/${n.worker_id}"><span class="ini" style="${hue(n.worker_id)}">${n.in_days === 0 ? '🌷' : esc(initials(n.name))}</span><b>${esc(n.name)}</b><em class="tag">${n.in_days === 0 ? 'ma' : n.in_days === 1 ? 'holnap' : `${esc(dWeek(n.date))}, ${esc(dShort(n.date))}`}</em></a>`).join('')}</div>`
+      ${nd.length ? `<div class="v-rows">${nd.map((n) => `<a class="v-row${n.in_days === 0 ? ' today' : ''}" href="#/ember/${n.worker_id}"><span ${av(n.worker_id)}>${n.in_days === 0 ? '🌷' : esc(initials(n.name))}</span><b>${esc(n.name)}</b><em class="tag">${n.in_days === 0 ? 'ma' : n.in_days === 1 ? 'holnap' : `${esc(dWeek(n.date))}, ${esc(dShort(n.date))}`}</em></a>`).join('')}</div>`
         : `<p class="v-empty">A következő héten nincs névnap. Legközelebb: <b>${esc(w.nameday_next.name)}</b>, ${esc(dShort(w.nameday_next.date))} (${w.nameday_next.in_days} nap múlva).</p>`}</section>` : ''}
     <section class="v-card"><div class="v-h"><b>Ma nincs bent</b><span>${offToday.length ? `${offToday.length} fő` : ''}</span></div>
       ${offToday.length ? `<div class="v-rows">${offToday.map(absRow).join('')}</div>` : `<p class="v-empty">${isOff(t) ? 'Ma nincs munkanap.' : 'Ma mindenki bent van.'}</p>`}</section>
@@ -202,7 +217,7 @@ async function viewCalendar(q) {
     document.querySelector(`.vd[data-d="${d}"]`)?.classList.add('sel');
     const it = items(d); const h = HOL.get(d);
     const grp = (k) => it.filter((x) => x.k === k);
-    const block = (k, title) => (grp(k).length ? `<div class="v-sub">${title}</div><div class="v-rows">${grp(k).map((x) => `<a class="v-row" href="#/ember/${x.worker_id}"><span class="ini" style="${hue(x.worker_id)}">${esc(initials(x.name))}</span><b>${esc(x.name)}</b><em class="tag ${KIND[k].c}">${k === 'leave' ? (x.date <= t || x.taken ? 'kivett' : 'tervezett') : fmt(x.minutes, true)}</em></a>`).join('')}</div>` : '');
+    const block = (k, title) => (grp(k).length ? `<div class="v-sub">${title}</div><div class="v-rows">${grp(k).map((x) => `<a class="v-row" href="#/ember/${x.worker_id}"><span ${av(x.worker_id)}>${esc(initials(x.name))}</span><b>${esc(x.name)}</b><em class="tag ${KIND[k].c}">${k === 'leave' ? (x.date <= t || x.taken ? 'kivett' : 'tervezett') : fmt(x.minutes, true)}</em></a>`).join('')}</div>` : '');
     document.getElementById('dbox').innerHTML = `<div class="v-h"><b>${esc(dLong(d))}</b><a href="#/uj?d=${d}">+ Rögzítés erre a napra</a></div>
       ${h ? `<p class="v-note">${esc(h.label)}</p>` : ''}
       ${it.length ? block('leave', 'Szabadság') + block('use', 'Szabadidő') + block('credit', 'Túlóra') : `<p class="v-empty">${isOff(d) && !h ? 'Hétvége.' : 'Nincs rögzített tétel.'}</p>`}`;
@@ -252,7 +267,7 @@ async function viewAdd(q) {
         const sq = st.search.trim().toLowerCase();
         let ws = active.filter((w) => (st.g === 'all' || gidsOf(w).includes(Number(st.g))) && (!sq || w.name.toLowerCase().includes(sq)));
         const rec = !sq && st.g === 'all' ? recent.slice(0, 4).map((id) => ws.find((w) => w.id === id)).filter(Boolean) : [];
-        const row = (w) => `<button type="button" class="v-row${st.ids.has(w.id) ? ' on' : ''}" data-w="${w.id}"><span class="ini" style="${hue(w.id)}">${st.multi && st.ids.has(w.id) ? I.check : esc(initials(w.name))}</span><b>${esc(w.name)}</b><em class="bal ${balClass(w.balance)}">${fmt(w.balance)}</em></button>`;
+        const row = (w) => `<button type="button" class="v-row${st.ids.has(w.id) ? ' on' : ''}" data-w="${w.id}"><span ${av(w.id)}>${st.multi && st.ids.has(w.id) ? I.check : esc(initials(w.name))}</span><b>${esc(w.name)}</b><em class="bal ${balClass(w.balance)}">${fmt(w.balance)}</em></button>`;
         document.getElementById('pl').innerHTML = (rec.length ? `<div class="v-sub">Legutóbb</div>${rec.map(row).join('')}<div class="v-sub">Mindenki</div>` : '')
           + (ws.map(row).join('') || '<p class="v-empty">Nincs találat.</p>')
           + (st.multi && ws.length ? `<button type="button" class="btn ghost small mt-10" id="allg">Mind kijelölése (${ws.length})</button>` : '');
@@ -370,14 +385,14 @@ async function viewPeople(q) {
     ${FILT[f] ? `<div class="v-filter">Szűrő: <b>${FILT[f][0]}</b><a href="#/emberek">× mind</a></div>` : `<div class="v-chips">${[['all', 'Mindenki'], ...gs.map((gg) => [String(gg.id), gg.name])].map(([k, l]) => `<a href="#/emberek?g=${k}" class="${g === k ? 'on' : ''}">${esc(l)}</a>`).join('')}</div>`}
     <div class="v-colh"><span></span><span>Túlóra</span><span>Szabi ${ly}</span></div>
     <div class="v-people" id="pl"></div>
-    ${others.length ? `<details class="v-more"><summary>Nem aktív dolgozók (${others.length})</summary><div class="v-people">${others.map((x) => `<a class="v-person muted" href="#/ember/${x.id}"><span class="ini" style="${hue(x.id)}">${esc(initials(x.name))}</span><div><b>${esc(x.name)}</b><small>${x.active === 2 ? 'parkoltatva' : 'kilépett'}</small></div></a>`).join('')}</div></details>` : ''}
+    ${others.length ? `<details class="v-more"><summary>Nem aktív dolgozók (${others.length})</summary><div class="v-people">${others.map((x) => `<a class="v-person muted" href="#/ember/${x.id}"><span ${av(x.id)}>${esc(initials(x.name))}</span><div><b>${esc(x.name)}</b><small>${x.active === 2 ? 'parkoltatva' : 'kilépett'}</small></div></a>`).join('')}</div></details>` : ''}
     ${nav('ppl')}`;
   const draw = (sq = '') => {
     const s = sq.trim().toLowerCase();
     const list = all.filter((x) => (FILT[f] ? FILT[f][1](x) : g === 'all' || gidsOf(x).includes(Number(g))) && (!s || x.name.toLowerCase().includes(s)));
     document.getElementById('pl').innerHTML = list.map((x) => {
       const l = leave.get(x.id);
-      return `<a class="v-person" href="#/ember/${x.id}"><span class="ini" style="${hue(x.id)}">${esc(initials(x.name))}</span><div><b>${esc(x.name)}</b><small>${esc(groupName(x) || '–')}${x.unsigned_old > 0 ? ' · <em class="warn">aláíratlan</em>' : ''}</small></div>
+      return `<a class="v-person" href="#/ember/${x.id}"><span ${av(x.id)}>${esc(initials(x.name))}</span><div><b>${esc(x.name)}</b><small>${esc(groupName(x) || '–')}${x.unsigned_old > 0 ? ' · <em class="warn">aláíratlan</em>' : ''}</small></div>
         <em class="bal ${balClass(x.balance)}">${fmt(x.balance)}</em><em class="v-lv${l && l.remaining < 0 ? ' c-neg' : ''}">${l ? `${l.remaining} nap` : '–'}</em></a>`;
     }).join('') || '<p class="v-empty">Nincs találat.</p>';
   };
@@ -446,6 +461,7 @@ async function route() {
   const q = new URLSearchParams(qs);
   window.scrollTo(0, 0);
   try {
+    if (!RANK.size && path !== '/belepes') await api('/workers');
     if (path === '/belepes') return viewLogin();
     if (path === '/' || path === '') return await viewToday();
     if (path === '/naptar') return await viewCalendar(q);
