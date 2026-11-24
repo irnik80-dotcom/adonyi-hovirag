@@ -3,6 +3,7 @@
 
 import { NEVNAPOK } from './nevnapok.js';
 import { handleSummer } from './summer.js';
+import { handleBackup, dailyBackup } from './backup.js';
 import { SCHEMA, TEMPLATES_TABLE, DEFAULT_TEMPLATES, GROUPS_TABLE, DEFAULT_GROUPS } from './schema.js';
 
 const COOKIE = 'hovirag_session';
@@ -264,6 +265,8 @@ async function buildReport(env, url, today) {
   return { today, from, to, generated: today, scope, sheets };
 }
 
+const BACKUP_CRON = '15 1 * * *';
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -298,6 +301,8 @@ export default {
     try {
       // Nyári beosztás: külön modul (src/summer.js)
       if (path.startsWith('/api/summer/')) return await handleSummer(request, env, { path, method, json, fail, audit });
+      // Automatikus és kézi biztonsági mentések (src/backup.js)
+      if (path === '/api/backups' || path.startsWith('/api/backups/')) return await handleBackup(request, env, { path, method, json, fail, audit });
 
       if (path === '/api/workers' && method === 'GET') {
         const { results } = await env.DB.prepare(`${BALANCES} ORDER BY w.active DESC, w.name COLLATE NOCASE`).bind(today, prevEnd).all();
@@ -919,9 +924,12 @@ export default {
   },
 
   // Naponta egyszer (wrangler.toml cron): ha egy hét múlva valakinek névnapja van, értesítést küld a feliratkozott eszközöknek.
+  // Éjjel (UTC 01:15) az automatikus biztonsági mentés fut; a reggeli futás pótolja, ha az éjjeli elmaradt.
   async scheduled(event, env, ctx) {
     ctx.waitUntil((async () => {
       await ensureSchema(env);
+      try { await dailyBackup(env, audit); } catch (e) { await audit(env, 'backup.fail', { error: String(e?.message || e).slice(0, 200) }); }
+      if (event.cron === BACKUP_CRON) return;
       const today = todayBudapest();
       const workers = (await env.DB.prepare('SELECT id, name, first_name FROM workers WHERE active = 1').all()).results;
       const due = upcomingNameDays(workers, today, 7).filter((x) => x.in_days === 7);
