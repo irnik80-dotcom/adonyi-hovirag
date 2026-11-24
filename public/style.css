@@ -424,3 +424,28 @@ h1,h2,.hello h1{font-weight:800;letter-spacing:-.02em}
 /* 6 menüpont telefonon: kisebb felirat, hogy elférjenek */
 @media (max-width:440px){.nav{padding-left:2px;padding-right:2px}.nav a{font-size:10.5px;letter-spacing:-.01em;min-width:0}.nav a span{white-space:nowrap}.nav a svg{width:24px;height:24px}}
 @media (max-width:370px){.nav a{font-size:9.8px}}
+
+/* szabadság naptárnézet (3 hónap) */
+.lc-nav{margin-top:4px}
+.lc-wrap{display:grid;grid-template-columns:1fr;gap:14px;margin-top:8px}
+@media (min-width:760px){.lc-wrap{grid-template-columns:repeat(3,1fr)}}
+.lc-m>b{display:block;font-family:var(--font-d);font-size:15px;text-transform:capitalize;margin-bottom:6px}
+.lc-g{display:grid;grid-template-columns:repeat(7,1fr);gap:3px}
+.lc-g em{font-style:normal;font-size:10.5px;font-weight:700;color:var(--ink-2);text-align:center}
+.lc-d{position:relative;aspect-ratio:1;border:1px solid var(--line);background:var(--surface);border-radius:9px;display:grid;place-items:center;font-weight:600;font-size:13px;padding:0;color:var(--ink);font-variant-numeric:tabular-nums}
+.lc-d.empty{border:0;background:none}
+.lc-d.wkd{color:var(--ink-2);background:var(--surface-2)}
+.lc-d.hol{color:var(--neg)}
+.lc-d.wrk{outline:1.5px dashed var(--ink-2);outline-offset:-3px}
+.lc-d.today{box-shadow:inset 0 0 0 2px var(--green)}
+.lc-d.lv.past{background:rgba(46,125,34,var(--a,1));color:#fff;border-color:transparent}
+.lc-d.lv.plan{background:rgba(143,206,122,var(--a,1));color:#123;border-color:transparent;background-image:repeating-linear-gradient(135deg,rgba(255,255,255,.35) 0 3px,transparent 3px 7px)}
+.lc-d.sel{outline:2px solid var(--ink);outline-offset:1px}
+.lc-d i{position:absolute;right:2px;top:1px;font-style:normal;font-size:9.5px;font-weight:800}
+.lc-leg{display:flex;flex-wrap:wrap;gap:4px 8px;align-items:center}
+.lc-sw{display:inline-block;width:14px;height:14px;border-radius:4px;vertical-align:-2px}
+.lc-sw.past{background:rgb(46,125,34)}.lc-sw.plan{background:rgb(143,206,122);background-image:repeating-linear-gradient(135deg,rgba(255,255,255,.35) 0 3px,transparent 3px 7px)}.lc-sw.hol{background:var(--surface);border:1px solid var(--neg)}
+.lc-day{margin-top:12px}
+.lc-d>span{line-height:1}
+.lc-d i{right:auto;left:50%;top:auto;bottom:1px;transform:translateX(-50%);font-size:8.5px;line-height:1;opacity:.9}
+.lc-d.n>span{transform:translateY(-3px)}
