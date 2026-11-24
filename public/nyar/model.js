@@ -27,7 +27,7 @@ export const DEFAULT_SETTINGS = {
   colors: { DE: '#FFE08A', DU: '#A9D3F5', D: '#F3C9A8', szabadsag: '#9FD89A', beteg: '#F4A7A7', pluszora: '#B8E3E0', egyeb: '#D9C3F0', piheno: '#FFFFFF', hetvege: '#D6D6D6', zarva: '#BDBDBD' },
   abbr: { DE: 'DE', DU: 'DU', D: 'D', szabadsag: 'SZ', beteg: 'B', pluszora: 'PL', egyeb: 'T', piheno: '', hetvege: '', zarva: 'Ü' },
   groupMax: 25, // ennyi gyerek fér egy csoportba (50 → 2 csoport, 52 → 3)
-  report: { title: 'Adonyi Hóvirág Óvoda', margin_mm: 5, show_counts: true, weekend_x: false, period_only: true },
+  report: { title: 'Adonyi Hóvirág Óvoda', margin_mm: 5, weekend_x: false, period_only: true },
 };
 
 // ---------- dátum segédek ----------

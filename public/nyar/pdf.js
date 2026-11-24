@@ -1,6 +1,6 @@
 // Havi A3 (fekvő) PDF a kiválasztott beosztásból. Minden hónap egy oldal, az összes dolgozóval.
 // A pdf-lib és a betűkészlet csak a PDF készítésekor töltődik be.
-import { staffByRole, WEEKDAY_SHORT, MONTH_NAMES, dotted, shiftsOf, SHIFT_LABEL, approvalKey } from './model.js';
+import { staffByRole, WEEKDAY_SHORT, MONTH_NAMES, dotted } from './model.js';
 
 const MM = 72 / 25.4;
 const A3 = [420 * MM, 297 * MM];
@@ -78,7 +78,7 @@ export async function makePdf(plan, cal, abs, val, months, deps = null, sheets =
 
     // méretek
     const headH = 26, legendH = 34, gap = 8;
-    const nRows = groups.reduce((a, g) => a + 1 + g.workers.length + (rep.show_counts ? shiftsOf(g.role).length : 0), 0);
+    const nRows = groups.reduce((a, g) => a + 1 + g.workers.length, 0);
     const tableTop = top - (sub ? 40 : 32);
     const availH = tableTop - headH - (bottom + legendH + gap);
     const rowH = Math.max(8, Math.min(22, availH / Math.max(1, nRows)));
@@ -129,22 +129,6 @@ export async function makePdf(plan, cal, abs, val, months, deps = null, sheets =
         });
         hLines.push(y);
       }
-      if (rep.show_counts) for (const sh of shiftsOf(role)) {
-        y -= rowH;
-        rect(left, y, right - left, rowH, rgb(0.97, 0.98, 0.97));
-        text(`${SHIFT_LABEL[sh]}${role.groupsPer > 0 && Object.keys(plan.children || {}).length ? '' : ` (min. ${role.min[sh]})`}`, left + 4, y + rowH / 2 - fs / 2.8, fs - 1, F, grey);
-        days.forEach((d, i) => {
-          if (!d.work) { rect(colX(i), y, colW, rowH, hex(rgb, d.outside ? '#F5F5F5' : d.weekend ? s.colors.hetvege : s.colors.zarva)); return; }
-          const n = val.counts[`${d.date}|${sh}|${role.group_id}`] ?? 0;
-          const c = val.counts[`cov|${d.date}|${sh}|${role.group_id}`] || 0;
-          const mn = val.counts[`min|${d.date}|${sh}|${role.group_id}`] ?? role.min[sh];
-          const own = role.subBy != null ? Math.min(role.minOwn ?? 1, mn) : 0;
-          const short = n + c < mn || n < own;
-          const over = n > Math.max(role.opt?.[sh] ?? mn, mn);
-          centered(`${n}${c ? '+' + c : ''}${over && plan.approvals[approvalKey(d.date, sh, role.group_id)] ? '✓' : ''}`, colX(i), colW, y + rowH / 2 - fs / 2.8, fs - 1, short || over ? B : F, short ? red : grey);
-        });
-        hLines.push(y);
-      }
     }
     const tableBottom = y;
     for (const yy of hLines) page.drawLine({ start: { x: left, y: yy }, end: { x: right, y: yy }, thickness: 0.4, color: line });
@@ -175,7 +159,7 @@ export async function makePdf(plan, cal, abs, val, months, deps = null, sheets =
       text(label, lx + sw + 4, ly + 4, 9);
       lx += need;
     }
-    const note = 'Hétvégén és ünnepnapon nincs munkavégzés. A létszám sorban a ✓ jóváhagyott többletet jelöl.';
+    const note = 'Hétvégén és ünnepnapon nincs munkavégzés.';
     text(note, left, ly - 11, 8, F, grey);
     if (!val.ok) text('A beosztás ellenőrzése hibát talált – ez a lap nem végleges.', left + F.widthOfTextAtSize(note, 8) + 16, ly - 11, 8, B, red);
   }
