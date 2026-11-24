@@ -444,3 +444,6 @@ input[type=file].input{padding:8px 10px;color:var(--ink-2);font-size:14px}
 .note-box{border-radius:var(--r-m);padding:12px 14px;font-size:14px}
 .bk-item{flex-wrap:wrap}
 .bk-item .row{width:100%;justify-content:flex-end}
+.lv-item{flex-wrap:wrap}
+.lv-item .meta{flex:1 1 60%}
+.lv-item .acts{display:flex;gap:8px;margin-left:auto}

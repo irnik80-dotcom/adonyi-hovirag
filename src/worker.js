@@ -207,6 +207,9 @@ async function runSchema(env) {
   // Keresztnév a névnapokhoz (nem jelenik meg a listákban)
   try { await env.DB.prepare('SELECT first_name FROM workers LIMIT 1').first(); }
   catch { await env.DB.prepare("ALTER TABLE workers ADD COLUMN first_name TEXT NOT NULL DEFAULT ''").run(); }
+  // Szabadság kézi „kivett” jelölése (a napja előtt is); a múltbeli nap jelölés nélkül is kivettnek számít
+  try { await env.DB.prepare('SELECT taken FROM leaves LIMIT 1').first(); }
+  catch { await env.DB.prepare('ALTER TABLE leaves ADD COLUMN taken INTEGER NOT NULL DEFAULT 0').run(); }
   const had = await env.DB.prepare("SELECT 1 AS x FROM sqlite_master WHERE type = 'table' AND name = 'note_templates'").first();
   await env.DB.prepare(TEMPLATES_TABLE).run();
   if (!had) {
@@ -684,7 +687,7 @@ export default {
              AND NOT EXISTS (SELECT 1 FROM entries r WHERE r.reverses_id = e.id)
            ORDER BY e.date, w.name COLLATE NOCASE`).bind(`${month}-01`, `${month}-31`).all()).results;
         const leaves = (await env.DB.prepare(
-          `SELECT l.id, l.date, w.id AS worker_id, w.name FROM leaves l JOIN workers w ON w.id = l.worker_id
+          `SELECT l.id, l.date, l.taken, w.id AS worker_id, w.name FROM leaves l JOIN workers w ON w.id = l.worker_id
            WHERE w.active = 1 AND l.date >= ? AND l.date <= ? ORDER BY l.date, w.name COLLATE NOCASE`).bind(`${month}-01`, `${month}-31`).all()).results;
         return json({ today, month, entries, leaves });
       }
@@ -725,7 +728,7 @@ export default {
           `SELECT w.id, w.name, (SELECT group_id FROM staff_group_members g WHERE g.worker_id = w.id) AS group_id FROM workers w WHERE w.active = 1 ORDER BY w.name COLLATE NOCASE`).all()).results;
         const budgets = (await env.DB.prepare('SELECT * FROM leave_budget WHERE year IN (?1, ?2)').bind(year, year - 1).all()).results;
         const used = (await env.DB.prepare(
-          `SELECT worker_id, CAST(substr(date, 1, 4) AS INTEGER) AS y, COUNT(*) AS n, SUM(CASE WHEN date <= ?3 THEN 1 ELSE 0 END) AS past
+          `SELECT worker_id, CAST(substr(date, 1, 4) AS INTEGER) AS y, COUNT(*) AS n, SUM(CASE WHEN date <= ?3 OR taken = 1 THEN 1 ELSE 0 END) AS past
            FROM leaves WHERE substr(date, 1, 4) IN (?1, ?2) GROUP BY worker_id, y`).bind(String(year), String(year - 1), today).all()).results;
         const out = ws.map((x) => {
           const b = budgets.find((r) => r.worker_id === x.id && r.year === year) || { entitlement: 0, carry: 0 };
@@ -745,7 +748,7 @@ export default {
         const b = (await env.DB.prepare('SELECT entitlement, carry FROM leave_budget WHERE worker_id = ? AND year = ?').bind(id, year).first()) || { entitlement: 0, carry: 0 };
         const pb = await env.DB.prepare('SELECT entitlement, carry FROM leave_budget WHERE worker_id = ? AND year = ?').bind(id, year - 1).first();
         const pu = (await env.DB.prepare("SELECT COUNT(*) AS n FROM leaves WHERE worker_id = ? AND substr(date, 1, 4) = ?").bind(id, String(year - 1)).first()).n;
-        const leaves = (await env.DB.prepare('SELECT id, date, note FROM leaves WHERE worker_id = ? AND substr(date, 1, 4) = ? ORDER BY date').bind(id, String(year)).all()).results;
+        const leaves = (await env.DB.prepare('SELECT id, date, note, taken FROM leaves WHERE worker_id = ? AND substr(date, 1, 4) = ? ORDER BY date').bind(id, String(year)).all()).results;
         return json({ year, today, worker: wk, budget: b, prev_remaining: pb ? pb.entitlement + pb.carry - pu : null, leaves });
       }
       if (path === '/api/leave' && method === 'POST') {
@@ -769,6 +772,16 @@ export default {
         await env.DB.prepare(`DELETE FROM leaves WHERE id IN (${ph})`).bind(...ids).run();
         if (rows.length) await audit(env, 'leave.delete', { workerId: rows[0].worker_id, count: rows.length, from: rows[0].date, to: rows[rows.length - 1].date });
         return json({ ok: true, deleted: rows.length });
+      }
+      // Tervezett szabadság kézi „kivett”-re állítása (vagy vissza tervezettre)
+      if (path === '/api/leave/taken' && method === 'POST') {
+        const b = await request.json();
+        const ids = (b.ids || []).map(Number).filter(Number.isInteger).slice(0, 400);
+        if (!ids.length) return fail(400, 'Nincs kijelölt nap.');
+        const ph = ids.map(() => '?').join(',');
+        const rows = (await env.DB.prepare(`UPDATE leaves SET taken = ? WHERE id IN (${ph}) RETURNING worker_id, date`).bind(b.taken ? 1 : 0, ...ids).all()).results.sort((x, y) => (x.date < y.date ? -1 : 1));
+        if (rows.length) await audit(env, 'leave.taken', { workerId: rows[0].worker_id, count: rows.length, taken: Boolean(b.taken), from: rows[0].date, to: rows[rows.length - 1].date });
+        return json({ ok: true, updated: rows.length });
       }
       if (path === '/api/leave/budget' && method === 'PUT') {
         const b = await request.json();
