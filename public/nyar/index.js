@@ -46,6 +46,23 @@ async function loadPlan(id) {
   await loadContext(planYears());
   st.plan.staff = M.syncStaff(st.plan.staff, st.plan.roles, st.ctx.workers);
   recompute();
+  await syncMainLeaves();
+}
+// A fő alkalmazás Szabadság menüjének napjai a terv távolléteibe (forrás: 'foapp'); a terv betöltésekor és időszakváltáskor frissül
+async function syncMainLeaves({ force = false } = {}) {
+  const p = st.plan;
+  if (p.settings.mainLeaves === false && !force) {
+    if (p.absences.some((a) => a.source === 'foapp')) { p.absences = p.absences.filter((a) => a.source !== 'foapp'); changed(); }
+    return 0;
+  }
+  try {
+    const { leaves } = await C.api(`/summer/leaves?from=${p.period.from}&to=${p.period.to}`);
+    const fresh = M.mainLeavesToAbsences(leaves, st.cal, new Set(p.staff.map((x) => x.id)));
+    const key = (list) => JSON.stringify(list.map((a) => [a.worker_id, a.from, a.to, a.note]).sort());
+    const old = p.absences.filter((a) => a.source === 'foapp');
+    if (key(old) !== key(fresh)) { p.absences = p.absences.filter((a) => a.source !== 'foapp').concat(fresh); changed(); }
+    return fresh.length;
+  } catch (e) { C.toast(`A Szabadság menü adatai nem tölthetők be: ${errMsg(e)}`); return null; }
 }
 const planYears = () => { const a = Number(st.plan.period.from.slice(0, 4)), b = Number(st.plan.period.to.slice(0, 4)); return a && b ? Array.from({ length: Math.min(3, b - a + 1) }, (_, i) => a + i) : [new Date().getFullYear()]; };
 function recompute() {
@@ -227,7 +244,7 @@ function tabSettings(el) {
     if (!M.isDate(f) || !M.isDate(t) || f > t) return C.toast('Hibás időszak: a kezdőnap nem lehet az utolsó nap után.');
     if ((Date.parse(t) - Date.parse(f)) / 864e5 > 200) return C.toast('Az időszak legfeljebb 200 nap lehet.');
     p.period = { from: f, to: t };
-    loadContext(planYears()).then(() => changed({ rerender: rerenderTab }));
+    loadContext(planYears()).then(() => { changed(); return syncMainLeaves(); }).then(() => rerenderTab());
   };
   $('pf').onchange = per; $('pt').onchange = per;
   $('pm').onchange = (e) => { p.mode = e.target.value; changed({ rerender: rerenderTab }); };
@@ -406,6 +423,10 @@ function tabAbsences(el) {
   const pv = st.importPreview;
   const opts = M.staffByRole(p).map(({ role, workers }) => `<optgroup label="${esc(role.label)}">${workers.map((w) => `<option value="${w.id}">${esc(w.name)}</option>`).join('')}</optgroup>`).join('');
   el.innerHTML = `
+    <section class="field"><span class="label">Szabadság menü (fő alkalmazás)</span>
+      <label class="ny-chk"><input type="checkbox" id="mlv" ${p.settings.mainLeaves !== false ? 'checked' : ''}> A Szabadság menüben rögzített napok automatikusan bekerülnek</label>
+      <p class="tabs-note">${p.settings.mainLeaves !== false ? `Most ${p.absences.filter((a) => a.source === 'foapp').length} szakasz jön onnan (${p.absences.filter((a) => a.source === 'foapp').reduce((n, a) => n + M.workdaysIn(st.cal, a.from, a.to), 0)} munkanap). A terv megnyitásakor frissül; ezeket a Szabadság menüben lehet módosítani. Az Excel-import és a kézi felvétel mellettük megmarad.` : 'Kikapcsolva: csak az importált és a kézzel felvett távollétek számítanak.'}</p>
+      ${p.settings.mainLeaves !== false ? '<button class="btn ghost small" id="mlr" type="button">Frissítés most</button>' : ''}</section>
     <section class="field"><span class="label">Importálás Excelből vagy CSV-ből</span>
       <p class="tabs-note">Oszlopok: <b>Dolgozóazonosító</b> (vagy <b>Dolgozó neve</b>), <b>Szabadság kezdete</b>, <b>Szabadság vége</b>, és nem kötelezően Típus (szabadság / egyéb), Státusz (igényelt / jóváhagyott), Megjegyzés. Egynapos szabadságnál a kezdő és a záró dátum ugyanaz. A sablonban már benne vannak a dolgozók és az azonosítóik.</p>
       <div class="ny-btns"><button class="btn ghost small" id="tpl" type="button">Kitöltendő sablon letöltése (Excel)</button></div>
@@ -422,7 +443,9 @@ function tabAbsences(el) {
         <div class="ny-abs"><b>${esc(nameOf.get(wid) || `#${wid}`)}</b><small>${list.reduce((n, a) => n + M.workdaysIn(st.cal, a.from, a.to), 0)} munkanap az időszakban</small>
         ${list.sort((a, b) => a.from.localeCompare(b.from)).map((a) => `<div class="ny-absrow"><span class="ny-sw" style="background:${esc(p.settings.colors[a.kind])}">${esc(p.settings.abbr[a.kind])}</span>
           <span>${M.dotted(a.from)}${a.to !== a.from ? ` – ${M.dotted(a.to)}` : ''} <small>${M.ABSENCE_KINDS[a.kind]} · ${M.ABSENCE_STATUS[a.status] || ''} · ${M.workdaysIn(st.cal, a.from, a.to)} munkanap${a.note ? ' · ' + esc(a.note) : ''}${a.source === 'kezi' ? ' · kézi' : ''}</small></span>
-          <button class="ny-ic" type="button" data-adel="${esc(a.id)}" aria-label="Törlés">✕</button></div>`).join('')}</div>`).join('') || '<p class="tabs-note">Még nincs távollét.</p>'}</section>`;
+          ${a.source === 'foapp' ? '<span class="ny-src" title="A fő alkalmazás Szabadság menüjében módosítható">Szabadság menü</span>' : `<button class="ny-ic" type="button" data-adel="${esc(a.id)}" aria-label="Törlés">✕</button>`}</div>`).join('')}</div>`).join('') || '<p class="tabs-note">Még nincs távollét.</p>'}</section>`;
+  $('mlv').onchange = async (e) => { p.settings.mainLeaves = e.target.checked; await syncMainLeaves(); changed({ rerender: rerenderTab }); };
+  if ($('mlr')) $('mlr').onclick = async () => { const n = await syncMainLeaves({ force: true }); if (n != null) { rerenderTab(); C.toast(`Frissítve: ${n} szakasz a Szabadság menüből`); } };
   $('tpl').onclick = () => downloadTemplate().catch((e) => C.toast(`A sablon nem készült el: ${errMsg(e)}`));
   $('if').onchange = async (e) => {
     const f = e.target.files[0]; if (!f) return;
@@ -441,7 +464,7 @@ function tabAbsences(el) {
     changed({ rerender: rerenderTab }); C.toast('Hozzáadva');
   };
   el.querySelectorAll('[data-adel]').forEach((b) => (b.onclick = () => { p.absences = p.absences.filter((a) => a.id !== b.dataset.adel); changed({ rerender: rerenderTab }); }));
-  if ($('adelall')) $('adelall').onclick = () => { if (!confirm('Törlöd az összes importált távollétet? A kézzel felvettek megmaradnak.')) return; p.absences = p.absences.filter((a) => a.source === 'kezi'); changed({ rerender: rerenderTab }); };
+  if ($('adelall')) $('adelall').onclick = () => { if (!confirm('Törlöd az összes Excelből importált távollétet? A kézzel felvettek és a Szabadság menüből jövők megmaradnak.')) return; p.absences = p.absences.filter((a) => a.source === 'kezi' || a.source === 'foapp'); changed({ rerender: rerenderTab }); };
 }
 function importPreviewHtml(pv) {
   const errs = pv.issues.filter((i) => i.level === 'error'), warns = pv.issues.filter((i) => i.level === 'warning');
@@ -457,7 +480,7 @@ function bindImport() {
   const p = st.plan;
   if ($('iok')) $('iok').onclick = () => {
     const recs = st.importPreview.records;
-    p.absences = p.absences.filter((a) => a.source === 'kezi').concat(recs.map((r) => ({ id: M.uid(), worker_id: r.worker_id, from: r.from, to: r.to, kind: r.kind, status: r.status, note: r.note, source: 'import' })));
+    p.absences = p.absences.filter((a) => a.source === 'kezi' || a.source === 'foapp').concat(recs.map((r) => ({ id: M.uid(), worker_id: r.worker_id, from: r.from, to: r.to, kind: r.kind, status: r.status, note: r.note, source: 'import' })));
     st.importPreview = null; changed({ rerender: rerenderTab }); C.toast(`${recs.length} távollét importálva`);
   };
   if ($('icancel')) $('icancel').onclick = () => { st.importPreview = null; $('ipv').innerHTML = ''; };

@@ -613,3 +613,25 @@ export function pairReport(plan, cal, absMap, grid) {
     return { ...p, aName: name.get(p.a), bName: name.get(p.b), together: togetherDays(grid, absMap, p.a, p.b, cal.workdays), both };
   });
 }
+
+// A fő alkalmazás Szabadság menüjének napjaiból (worker_id, date, note) összefüggő szabadság-szakaszok.
+// Két nap egy szakasz, ha köztük csak nem munkanap (hétvége, ünnep) van. A forrás 'foapp': a terv betöltésekor frissül.
+export function mainLeavesToAbsences(rows, cal, staffIds) {
+  const by = new Map();
+  for (const r of rows) { if (staffIds && !staffIds.has(r.worker_id)) continue; if (!by.has(r.worker_id)) by.set(r.worker_id, []); by.get(r.worker_id).push(r); }
+  const out = [];
+  for (const [wid, list] of by) {
+    list.sort((a, b) => a.date.localeCompare(b.date));
+    let cur = null;
+    for (const r of list) {
+      if (cur) {
+        let only = true;
+        for (let d = addDays(cur.to, 1); d < r.date; d = addDays(d, 1)) { const day = cal.byDate.get(d); const work = day ? day.work : ![0, 6].includes(dowOf(d)); if (work) { only = false; break; } }
+        if (only) { cur.to = r.date; if (r.note && !cur.note.includes(r.note)) cur.note = cur.note ? `${cur.note}; ${r.note}` : r.note; continue; }
+      }
+      cur = { id: `fo-${wid}-${r.date}`, worker_id: wid, from: r.date, to: r.date, kind: 'szabadsag', status: 'jovahagyott', note: r.note || '', source: 'foapp' };
+      out.push(cur);
+    }
+  }
+  return out;
+}
