@@ -778,6 +778,12 @@ export default {
         const b = await request.json();
         const ids = (b.ids || []).map(Number).filter(Number.isInteger).slice(0, 400);
         if (!ids.length) return fail(400, 'Nincs kijelölt nap.');
+        // A következő évi szabadság csak január 1-től vehető ki (tárgyévre szól)
+        if (b.taken) {
+          const yNow = todayBudapest().slice(0, 4);
+          const ahead = await env.DB.prepare(`SELECT COUNT(*) AS n FROM leaves WHERE id IN (${ids.map(() => '?').join(',')}) AND substr(date, 1, 4) > ?`).bind(...ids, yNow).first();
+          if (ahead.n) return fail(400, `A következő évi szabadság csak január 1-től állítható kivettre (${ahead.n} nap).`);
+        }
         const ph = ids.map(() => '?').join(',');
         const rows = (await env.DB.prepare(`UPDATE leaves SET taken = ? WHERE id IN (${ph}) RETURNING worker_id, date`).bind(b.taken ? 1 : 0, ...ids).all()).results.sort((x, y) => (x.date < y.date ? -1 : 1));
         if (rows.length) await audit(env, 'leave.taken', { workerId: rows[0].worker_id, count: rows.length, taken: Boolean(b.taken), from: rows[0].date, to: rows[rows.length - 1].date });
