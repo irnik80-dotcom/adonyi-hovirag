@@ -1024,7 +1024,8 @@ async function viewCalendar(q) {
   const days = new Date(y, mo, 0).getDate();
   const lead = (first.getDay() + 6) % 7;
   const byDay = {};
-  entries.forEach((e) => { (byDay[e.date] ||= []).push(e); });
+  const byPlus = {};
+  entries.forEach((e) => { (e.kind === 'credit' ? (byPlus[e.date] ||= []) : (byDay[e.date] ||= [])).push(e); });
   const byLeave = {}; leaves.forEach((l) => { (byLeave[l.date] ||= []).push(l); });
   const prev = new Date(y, mo - 2, 1, 12), next = new Date(y, mo, 1, 12);
   const key = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}`;
@@ -1034,14 +1035,14 @@ async function viewCalendar(q) {
     const date = `${month}-${pad(d)}`; const n = (byDay[date] || []).length;
     const h = HOL.get(date); const dow = new Date(y, mo - 1, d, 12).getDay(); const wkend = dow === 0 || dow === 6;
     const kind = h ? (h.kind === 'off' ? ' hol' : ' wrk') : wkend ? ' wkd' : '';
-    cells.push(`<button type="button" class="day ${date === srvToday ? 'today' : ''} ${date > srvToday ? 'future' : ''}${kind}" data-day="${date}"${h ? ` title="${esc(h.label)}"` : ''}><span>${d}</span>${n ? `<i>${n}</i>` : ''}${(byLeave[date] || []).length ? `<i class="lv">${byLeave[date].length}</i>` : ''}</button>`);
+    cells.push(`<button type="button" class="day ${date === srvToday ? 'today' : ''} ${date > srvToday ? 'future' : ''}${kind}" data-day="${date}"${h ? ` title="${esc(h.label)}"` : ''}><span>${d}</span>${n ? `<i>${n}</i>` : ''}${(byLeave[date] || []).length ? `<i class="lv">${byLeave[date].length}</i>` : ''}${(byPlus[date] || []).length ? `<i class="pl">${byPlus[date].length}</i>` : ''}</button>`);
   }
   $app.innerHTML = `
     <div class="topbar"><h2>Naptár</h2></div>
     <div class="calhead"><a class="back" href="#/naptar?m=${key(prev)}" aria-label="Előző hónap">${ICONS.back}</a><b>${title}</b>
       <a class="back" href="#/naptar?m=${key(next)}" aria-label="Következő hónap" style="transform:scaleX(-1)">${ICONS.back}</a></div>
     <div class="calgrid"><span>H</span><span>K</span><span>Sze</span><span>Cs</span><span>P</span><span>Szo</span><span>V</span>${cells.join('')}</div>
-    <p class="tabs-note">A napokon a <b style="color:var(--bar)">zöld jelvény</b> (bal felül) a szabadságon lévők, a <b style="color:var(--coral)">piros jelvény</b> (jobb felül) a szabadidőt kivevők száma. <b style="color:var(--neg)">Piros számú nap</b>: munkaszüneti nap, <b>keretes</b>: ledolgozandó munkanap. Az áthelyezett napokat a Beállításokban adhatod meg.</p>
+    <p class="tabs-note">A napokon a <b style="color:var(--bar)">zöld jelvény</b> (bal felül) a szabadságon lévők, a <b style="color:var(--info-fg)">kék jelvény</b> (felül középen) a túlórát (+ órát) rögzítők, a <b style="color:var(--coral)">piros jelvény</b> (jobb felül) a szabadidőt kivevők száma. <b style="color:var(--neg)">Piros számú nap</b>: munkaszüneti nap, <b>keretes</b>: ledolgozandó munkanap. Az áthelyezett napokat a Beállításokban adhatod meg.</p>
     <div id="dd" class="upcoming" hidden></div>${nav('cal')}`;
   const show = (date) => {
     document.querySelectorAll('.day[data-day]').forEach((c) => { const on = c.dataset.day === date; c.classList.toggle('sel', on); c.setAttribute('aria-pressed', on); });
@@ -1052,10 +1053,12 @@ async function viewCalendar(q) {
     const lv = byLeave[date] || [];
     const lvHtml = lv.length ? `<span class="label mt-6">Szabadságon</span>${lv.map((e) => `<a href="#/szabadsag/${e.worker_id}"><b>egész nap</b><span>${esc(e.name)}</span><em></em></a>`).join('')}` : '';
     const stHtml = list.length ? `<span class="label mt-6">Szabadidő</span>${list.map((e) => `<a href="#/dolgozo/${e.worker_id}"><b>${fmt(-e.minutes)}</b><span>${esc(e.name)}${e.note ? ` · ${esc(e.note)}` : ''}</span><em></em></a>`).join('')}` : '';
-    box.innerHTML = `<span class="label">${fullDate(date)}</span>${dayNote}${lvHtml}${stHtml}${!lv.length && !list.length ? '<p class="tabs-note m-0">Ezen a napon senki nincs távol.</p>' : ''}`;
+    const pl = byPlus[date] || [];
+    const plHtml = pl.length ? `<span class="label mt-6">Túlóra</span>${pl.map((e) => `<a href="#/dolgozo/${e.worker_id}"><b>${fmt(e.minutes, true)}</b><span>${esc(e.name)}${e.note ? ` · ${esc(e.note)}` : ''}</span><em></em></a>`).join('')}` : '';
+    box.innerHTML = `<span class="label">${fullDate(date)}</span>${dayNote}${lvHtml}${plHtml}${stHtml}${!lv.length && !list.length && !pl.length ? '<p class="tabs-note m-0">Ezen a napon nincs rögzített távollét vagy túlóra.</p>' : ''}`;
   };
   document.querySelectorAll('[data-day]').forEach((b) => (b.onclick = () => show(b.dataset.day)));
-  if (byDay[srvToday] || byLeave[srvToday]) show(srvToday);
+  if (byDay[srvToday] || byLeave[srvToday] || byPlus[srvToday]) show(srvToday);
 }
 
 /* ---------- napló ---------- */

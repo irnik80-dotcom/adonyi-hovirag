@@ -374,6 +374,8 @@ h1,h2,.hello h1{font-weight:800;letter-spacing:-.02em}
 /* szabadság */
 .track s.pl{background:var(--bar);opacity:.4}
 .day i.lv{right:auto;left:2px;background:var(--bar);color:var(--green-ink)}
+.day i.pl{right:auto;left:50%;transform:translateX(-50%);background:#BFE0FF;color:#16375E}
+@media (prefers-color-scheme:dark){.day i.pl{background:#7FB8F0;color:#0D2238}}
 .seg a.segl{text-align:center;padding:11px 8px;border-radius:12px;font-weight:700;font-size:14px;color:var(--ink-2);text-decoration:none}
 .seg a.segl.on{background:var(--ink);color:var(--bg)}
 .sheet table.leave th,.sheet table.leave td{padding:6px 4px;font-size:11px}

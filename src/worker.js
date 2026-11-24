@@ -673,9 +673,9 @@ export default {
         const month = url.searchParams.get('month') || today.slice(0, 7);
         if (!/^\d{4}-\d{2}$/.test(month)) return fail(400, 'Hibás hónap.');
         const entries = (await env.DB.prepare(
-          `SELECT e.id, e.date, e.minutes, e.note, w.id AS worker_id, w.name
+          `SELECT e.id, e.date, e.minutes, e.note, e.kind, w.id AS worker_id, w.name
            FROM entries e JOIN workers w ON w.id = e.worker_id
-           WHERE e.kind = 'use' AND w.active = 1 AND e.date >= ? AND e.date <= ?
+           WHERE e.kind IN ('use', 'credit') AND w.active = 1 AND e.date >= ? AND e.date <= ?
              AND NOT EXISTS (SELECT 1 FROM entries r WHERE r.reverses_id = e.id)
            ORDER BY e.date, w.name COLLATE NOCASE`).bind(`${month}-01`, `${month}-31`).all()).results;
         const leaves = (await env.DB.prepare(
