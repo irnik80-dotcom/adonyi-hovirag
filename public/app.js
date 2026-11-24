@@ -1120,6 +1120,7 @@ async function viewAudit() {
       case 'worker.create': return `Dolgozó felvéve: ${d.name ? esc(d.name) : `törölt dolgozó (#${d.id})`}${d.opening ? ` (nyitó: ${fmt(d.opening)})` : ''}`;
       case 'migration.opening': return `Nyitó egyenlegek dátuma ${dotted(d.date)}-ra állítva (${d.opening} tétel), ${d.signatures} aláírás-jelölés visszavonva${d.earlier ? `. Figyelem: ${d.earlier} nem nyitó tétel dátuma korábbi, mint ${dotted(d.date)}` : ''}`;
       case 'leave.add': return `Szabadság rögzítve: ${esc(name(d.workerId))} · ${d.count} nap (${dotted(d.from)} – ${dotted(d.to)})`;
+      case 'leave.taken': return `Szabadság ${d.taken ? 'kivettre' : 'tervezettre'} állítva: ${esc(name(d.workerId))} · ${d.count} nap (${dotted(d.from)} – ${dotted(d.to)})`;
       case 'leave.delete': return `Szabadság törölve: ${esc(name(d.workerId))} · ${d.count} nap`;
       case 'leave.budget': return `Szabadság-keret: ${esc(name(d.workerId))} · ${d.year}: ${d.entitlement} nap${d.carry ? ` + ${d.carry} átvitt` : ''}`;
       case 'holiday.set': return `Speciális nap: ${dotted(d.date)} (${d.kind === 'off' ? 'szabadnap' : 'ledolgozandó munkanap'})`;
@@ -1183,11 +1184,12 @@ function leaveRanges(list) {
   const out = [];
   for (const l of list) {
     const last = out[out.length - 1];
-    if (last && nextWorkday(last.to) === l.date) { last.to = l.date; last.days++; last.ids.push(l.id); }
-    else out.push({ from: l.date, to: l.date, days: 1, ids: [l.id], note: l.note || '' });
+    if (last && nextWorkday(last.to) === l.date && Boolean(last.taken) === Boolean(l.taken)) { last.to = l.date; last.days++; last.ids.push(l.id); last.items.push(l); }
+    else out.push({ from: l.date, to: l.date, days: 1, ids: [l.id], items: [l], taken: Boolean(l.taken), note: l.note || '' });
   }
   return out;
 }
+const isTaken = (l, t) => l.date <= t || Boolean(l.taken);
 const rangeText = (r) => (r.from === r.to ? dotted(r.from) : `${dotted(r.from)} – ${dotted(r.to)}`);
 const nap = (n) => `${n} nap`;
 const yearNav = (y, base) => `<div class="calhead" style="margin:6px 0 0"><a class="back" href="#${base}?y=${y - 1}" aria-label="Előző év">${ICONS.back}</a><b>${y}</b>
@@ -1215,9 +1217,9 @@ async function leaveCalendar(el, opts = {}) {
       for (let d = 1; d <= n; d++) {
         const date = `${m}-${pad(d)}`; const lv = byDay[date] || []; const h = HOL.get(date);
         const dow = new Date(y, mo - 1, d, 12).getDay(); const wk = dow === 0 || dow === 6;
-        const cls = ['lc-d', wk ? 'wkd' : '', h?.kind === 'off' ? 'hol' : '', h?.kind === 'work' ? 'wrk' : '', date === t ? 'today' : '', lv.length ? (date <= t ? 'lv past' : 'lv plan') : '', date === picked ? 'sel' : '', !opts.workerId && lv.length ? 'n' : ''].filter(Boolean).join(' ');
+        const cls = ['lc-d', wk ? 'wkd' : '', h?.kind === 'off' ? 'hol' : '', h?.kind === 'work' ? 'wrk' : '', date === t ? 'today' : '', lv.length ? (lv.every((l) => isTaken(l, t)) ? 'lv past' : 'lv plan') : '', date === picked ? 'sel' : '', !opts.workerId && lv.length ? 'n' : ''].filter(Boolean).join(' ');
         const style = !opts.workerId && lv.length ? ` style="--a:${(0.3 + 0.7 * lv.length / max).toFixed(2)}"` : '';
-        const tip = [h?.label, lv.length ? (opts.workerId ? (date <= t ? 'kivett szabadság' : 'tervezett szabadság') : `${lv.length} fő szabadságon`) : ''].filter(Boolean).join(' · ');
+        const tip = [h?.label, lv.length ? (opts.workerId ? (isTaken(lv[0], t) ? 'kivett szabadság' : 'tervezett szabadság') : `${lv.length} fő szabadságon`) : ''].filter(Boolean).join(' · ');
         cells.push(`<button type="button" class="${cls}"${style} data-lc="${date}"${tip ? ` title="${esc(tip)}"` : ''}><span>${d}</span>${!opts.workerId && lv.length ? `<i>${lv.length}</i>` : ''}</button>`);
       }
       return `<div class="lc-m"><b>${huM.format(mDate(m))}</b><div class="lc-g"><em>H</em><em>K</em><em>Sze</em><em>Cs</em><em>P</em><em>Szo</em><em>V</em>${cells.join('')}</div></div>`;
@@ -1234,7 +1236,7 @@ async function leaveCalendar(el, opts = {}) {
       el.querySelectorAll('[data-lc]').forEach((b) => b.classList.toggle('sel', b.dataset.lc === date));
       if (opts.workerId) return;
       const box = el.querySelector('.lc-day'); const lv = byDay[date] || []; box.hidden = false;
-      box.innerHTML = `<span class="label">${fullDate(date)}</span>${lv.length ? lv.map((e) => `<a href="#/szabadsag/${e.worker_id}"><b>${date <= t ? 'kivett' : 'tervezett'}</b><span>${esc(e.name)}</span><em></em></a>`).join('') : '<p class="tabs-note m-0">Ezen a napon senki nincs szabadságon.</p>'}`;
+      box.innerHTML = `<span class="label">${fullDate(date)}</span>${lv.length ? lv.map((e) => `<a href="#/szabadsag/${e.worker_id}"><b>${isTaken(e, t) ? 'kivett' : 'tervezett'}</b><span>${esc(e.name)}</span><em></em></a>`).join('') : '<p class="tabs-note m-0">Ezen a napon senki nincs szabadságon.</p>'}`;
     };
     el.querySelectorAll('[data-lc]').forEach((b) => (b.onclick = () => showDay(b.dataset.lc)));
     if (picked && months.some((m) => picked.startsWith(m))) showDay(picked);
@@ -1297,7 +1299,7 @@ async function viewLeaveWorker(id, q) {
   await loadHolidays([year, year + 1]);
   const total = budget.entitlement + budget.carry; const used = leaves.length;
   const ranges = leaveRanges(leaves);
-  const t = today(); const pastN = leaves.filter((l) => l.date <= t).length;
+  const t = today(); const pastN = leaves.filter((l) => isTaken(l, t)).length;
   $app.innerHTML = `
     <div class="topbar withart"><a class="back" href="#/szabadsag?y=${year}" aria-label="Vissza">${ICONS.back}</a><h2>${esc(worker.name)}</h2></div>${ICONS.flowerArt}
     <div class="hero"><div class="top"><span>${year}. év · maradék szabadság</span><div class="big">${total - used}<span>nap</span></div></div>
@@ -1310,8 +1312,16 @@ async function viewLeaveWorker(id, q) {
       ${prevRem !== null && prevRem > 0 && !budget.carry ? `<button type="button" class="btn ghost small mt-8" id="carry">Átvitel az előző évből (${prevRem} nap)</button>` : ''}
       <button class="btn small mt-10" type="submit">Keret mentése</button></form>
     <div class="field"><span class="label">Naptár</span><div id="lcal"></div></div>
-    <div class="field"><span class="label">Kivett szabadságok</span>${ranges.length ? `<div class="entries">${ranges.map((r) => `<div class="entry"><div class="bal pos">${nap(r.days)}</div>
-      <div class="meta"><b>${rangeText(r)}</b><span>${r.note ? esc(r.note) : r.to > t ? 'tervezett' : 'kivett'}</span></div><button class="undo" data-delr="${r.ids.join(',')}">Törlés</button></div>`).join('')}</div>` : '<p class="tabs-note m-0">Ebben az évben még nincs rögzített szabadság.</p>'}</div>${nav('leave')}`;
+    <div class="field"><span class="label">Szabadságok</span>
+      <p class="tabs-note mt-0">A tervezett szabadság a napján magától kivett lesz. Előtte is átállíthatod kézzel a „Kivettre állít” gombbal.</p>
+      ${ranges.length ? `<div class="entries">${ranges.map((r) => {
+        const fut = r.items.filter((l) => l.date > t);
+        const plan = fut.filter((l) => !l.taken), manual = fut.filter((l) => l.taken);
+        const st = plan.length ? (plan.length < r.items.length ? 'részben kivett' : 'tervezett') : manual.length ? 'kivett (kézzel jelölve)' : 'kivett';
+        const btn = plan.length ? `<button class="undo" data-tk="${plan.map((l) => l.id).join(',')}" data-v="1">Kivettre állít</button>`
+          : manual.length ? `<button class="undo" data-tk="${manual.map((l) => l.id).join(',')}" data-v="0">Vissza tervezettre</button>` : '';
+        return `<div class="entry lv-item"><div class="bal ${plan.length ? 'zero' : 'pos'}">${nap(r.days)}</div>
+        <div class="meta"><b>${rangeText(r)}</b><span>${st}${r.note ? ` · ${esc(r.note)}` : ''}</span></div><div class="acts">${btn}<button class="undo" data-delr="${r.ids.join(',')}">Törlés</button></div></div>`; }).join('')}</div>` : '<p class="tabs-note m-0">Ebben az évben még nincs rögzített szabadság.</p>'}</div>${nav('leave')}`;
   const $ = (x) => document.getElementById(x);
   $('bf').onsubmit = async (e) => {
     e.preventDefault();
@@ -1320,6 +1330,9 @@ async function viewLeaveWorker(id, q) {
   };
   const carry = $('carry'); if (carry) carry.onclick = () => { $('bc').value = prevRem; };
   { const now = today(); leaveCalendar($('lcal'), { workerId: id, start: Number(now.slice(0, 4)) === year ? now.slice(0, 7) : `${year}-01` }); }
+  document.querySelectorAll('[data-tk]').forEach((b) => (b.onclick = async () => {
+    try { await api('/leave/taken', { method: 'POST', body: { ids: b.dataset.tk.split(',').map(Number), taken: b.dataset.v === '1' } }); toast(b.dataset.v === '1' ? 'Kivettre állítva' : 'Visszaállítva tervezettre'); viewLeaveWorker(id, q); } catch (err) { toast(err.message); }
+  }));
   document.querySelectorAll('[data-delr]').forEach((b) => (b.onclick = async () => {
     if (b.dataset.armed !== '1') { b.dataset.armed = '1'; b.textContent = 'Biztos?'; setTimeout(() => { b.dataset.armed = ''; b.textContent = 'Törlés'; }, 3000); return; }
     try { await api('/leave/delete', { method: 'POST', body: { ids: b.dataset.delr.split(',').map(Number) } }); toast('Törölve'); viewLeaveWorker(id, q); } catch (err) { toast(err.message); }
