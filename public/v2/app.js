@@ -411,6 +411,12 @@ async function viewPerson(id) {
   const taken = lv.leaves.filter((l) => l.date <= t || l.taken).length;
   const planned = lv.leaves.length - taken;
   const futLeave = ranges(lv.leaves.filter((l) => l.date > t).map((l) => l.date));
+  const lvRanges = [];
+  for (const l of [...lv.leaves].sort((a, b) => (a.date < b.date ? -1 : 1))) {
+    const last = lvRanges[lvRanges.length - 1];
+    if (last && nextWorkday(last.to) === l.date && (last.note || '') === (l.note || '') && Boolean(last.items[0].taken) === Boolean(l.taken)) { last.to = l.date; last.n++; last.items.push(l); }
+    else lvRanges.push({ from: l.date, to: l.date, n: 1, items: [l], note: l.note || '' });
+  }
   const ent = (e) => `<div class="v-ent"><b class="${e.minutes < 0 ? 'c-neg' : 'c-pos'}">${fmt(e.minutes, true)}</b><div><span>${esc(dShort(e.date))} · ${e.kind === 'opening' ? 'Nyitó egyenleg' : e.kind === 'credit' ? 'Túlóra' : 'Szabadidő'}</span>${e.note ? `<small>${esc(e.note)}</small>` : ''}</div></div>`;
   const status = w.active === 2 ? `<span class="tag">parkoltatva${w.park_note ? `: ${esc(w.park_note)}` : ''}</span>` : w.active === 0 ? '<span class="tag">kilépett</span>' : '';
   $app.innerHTML = `${topbar(w.name, '#/emberek')}
@@ -425,15 +431,34 @@ async function viewPerson(id) {
       ${future.map((e) => `<div class="v-row"><span class="dot k-use"></span><b>${esc(dShort(e.date))}</b><em class="tag k-use">${fmt(Math.abs(e.minutes))} szabadidő</em></div>`).join('')}</div></section>` : ''}
     <section class="v-card"><div class="v-h"><b>Legutóbbi tételek</b></div>
       ${past.length ? `<div class="v-ents">${past.slice(0, 5).map(ent).join('')}</div>${past.length > 5 ? `<details class="v-more"><summary>Mind a ${past.length} tétel</summary><div class="v-ents">${past.slice(5).map(ent).join('')}</div></details>` : ''}` : '<p class="v-empty">Még nincs tétel.</p>'}</section>
-    <details class="v-more v-card"><summary>Szabadságok ${ly} (${lv.leaves.length} nap)</summary>
-      ${lv.leaves.length ? `<div class="v-rows">${ranges(lv.leaves.map((l) => l.date)).map((r) => { const ids = lv.leaves.filter((l) => l.date >= r.from && l.date <= r.to); const tk = ids.every((l) => l.date <= t || l.taken); return `<div class="v-row"><span class="dot k-leave${tk ? '' : ' plan'}"></span><b>${esc(rangeText(r))}</b><em class="tag k-leave">${r.n} nap · ${tk ? 'kivett' : 'tervezett'}</em></div>`; }).join('')}</div>` : '<p class="v-empty">Ebben az évben még nincs szabadság.</p>'}</details>
+    <details class="v-more v-card" ${lv.leaves.some((l) => l.date > t) ? 'open' : ''}><summary>Szabadságok ${ly} (${lv.leaves.length} nap)</summary>
+      ${lv.leaves.length ? `<div class="v-rows">${lvRanges.map((r, i) => {
+        const fut = r.items.filter((l) => l.date > t); const plan = fut.filter((l) => !l.taken); const man = fut.filter((l) => l.taken);
+        const tk = !plan.length;
+        return `<div class="v-row v-lvr"><span class="dot k-leave${tk ? '' : ' plan'}"></span><div class="v-lvm"><b>${esc(rangeText(r))}</b><small>${r.n} nap · ${plan.length && plan.length < r.n ? 'részben kivett' : tk ? (man.length ? 'kivett (kézzel jelölve)' : 'kivett') : 'tervezett'}${r.note ? ` · ${esc(r.note)}` : ''}</small></div>
+          <div class="v-lva">${plan.length ? `<button type="button" class="chipbtn" data-tk="${i}" data-v="1">Kivett</button>` : man.length ? `<button type="button" class="chipbtn" data-tk="${i}" data-v="0">Tervezett</button>` : ''}<button type="button" class="chipbtn del" data-del="${i}">Törlés</button></div></div>`; }).join('')}</div>` : '<p class="v-empty">Ebben az évben még nincs szabadság.</p>'}</details>
     <details class="v-more v-card"><summary>Szerkesztés és egyebek</summary>
       <div class="v-links">
         <a href="/#/dolgozo/${id}">Tételek javítása, sztornó, aláírás</a>
-        <a href="/#/szabadsag/${id}?y=${ly}">Szabadságkeret, kivettre állítás, törlés</a>
+        <a href="/#/szabadsag/${id}?y=${ly}">Szabadságkeret beállítása</a>
         <a href="/#/kimutatas?w=${id}">Túlóralap nyomtatása</a>
       </div><p class="v-note">Ezek egyelőre a régi felületen nyílnak meg.</p></details>
     ${nav('ppl')}`;
+  document.querySelectorAll('[data-del]').forEach((b) => (b.onclick = async () => {
+    const r = lvRanges[Number(b.dataset.del)];
+    if (b.dataset.armed !== '1') { b.dataset.armed = '1'; b.textContent = `Biztos? ${r.n} nap`; b.classList.add('armed'); setTimeout(() => { b.dataset.armed = ''; b.textContent = 'Törlés'; b.classList.remove('armed'); }, 4000); return; }
+    const ids = r.items.map((l) => l.id);
+    try {
+      for (let i = 0; i < ids.length; i += 100) await api('/leave/delete', { method: 'POST', body: { ids: ids.slice(i, i + 100) } });
+      toast(`${r.n} nap szabadság törölve`, { label: 'Visszavonás', run: async () => { try { await api('/leave', { method: 'POST', body: { worker_id: id, dates: r.items.map((l) => l.date), note: r.note } }); toast('Visszaállítva'); route(); } catch (err) { toast(err.message); } } });
+      route();
+    } catch (err) { toast(err.message); }
+  }));
+  document.querySelectorAll('[data-tk]').forEach((b) => (b.onclick = async () => {
+    const r = lvRanges[Number(b.dataset.tk)]; const on = b.dataset.v === '1';
+    const ids = r.items.filter((l) => l.date > t && Boolean(l.taken) !== on).map((l) => l.id);
+    try { await api('/leave/taken', { method: 'POST', body: { ids, taken: on } }); toast(on ? 'Kivettre állítva' : 'Visszaállítva tervezettre'); route(); } catch (err) { toast(err.message); }
+  }));
 }
 
 /* ---------- Továbbiak ---------- */
