@@ -1139,6 +1139,64 @@ const nap = (n) => `${n} nap`;
 const yearNav = (y, base) => `<div class="calhead" style="margin:6px 0 0"><a class="back" href="#${base}?y=${y - 1}" aria-label="Előző év">${ICONS.back}</a><b>${y}</b>
   <a class="back" href="#${base}?y=${y + 1}" aria-label="Következő év" style="transform:scaleX(-1)">${ICONS.back}</a></div>`;
 
+/* ---------- szabadság naptárnézet: 3 hónap egyszerre, lapozható ---------- */
+// el: konténer; opts.workerId: csak egy dolgozó (különben mindenki, napi létszámmal); opts.start: 'ÉÉÉÉ-HH'
+async function leaveCalendar(el, opts = {}) {
+  const addM = (m, n) => { const [y, mo] = m.split('-').map(Number); const d = new Date(y, mo - 1 + n, 1, 12); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}`; };
+  const huM = new Intl.DateTimeFormat('hu-HU', { year: 'numeric', month: 'long' });
+  const mDate = (m) => new Date(Number(m.slice(0, 4)), Number(m.slice(5, 7)) - 1, 1, 12);
+  let start = opts.start || today().slice(0, 7);
+  let picked = null;
+  const draw = async () => {
+    const months = [0, 1, 2].map((i) => addM(start, i));
+    const [data] = await Promise.all([Promise.all(months.map((m) => api(`/calendar?month=${m}`))), loadHolidays([...new Set(months.map((m) => Number(m.slice(0, 4))))])]);
+    const t = data[0].today;
+    const byDay = {};
+    data.forEach((r) => r.leaves.forEach((l) => { if (!opts.workerId || l.worker_id === Number(opts.workerId)) (byDay[l.date] ||= []).push(l); }));
+    const max = Math.max(1, ...Object.values(byDay).map((x) => x.length));
+    const grid = (m) => {
+      const [y, mo] = m.split('-').map(Number);
+      const n = new Date(y, mo, 0).getDate(); const lead = (new Date(y, mo - 1, 1, 12).getDay() + 6) % 7;
+      const cells = Array(lead).fill('<span class="lc-d empty"></span>');
+      for (let d = 1; d <= n; d++) {
+        const date = `${m}-${pad(d)}`; const lv = byDay[date] || []; const h = HOL.get(date);
+        const dow = new Date(y, mo - 1, d, 12).getDay(); const wk = dow === 0 || dow === 6;
+        const cls = ['lc-d', wk ? 'wkd' : '', h?.kind === 'off' ? 'hol' : '', h?.kind === 'work' ? 'wrk' : '', date === t ? 'today' : '', lv.length ? (date <= t ? 'lv past' : 'lv plan') : '', date === picked ? 'sel' : '', !opts.workerId && lv.length ? 'n' : ''].filter(Boolean).join(' ');
+        const style = !opts.workerId && lv.length ? ` style="--a:${(0.3 + 0.7 * lv.length / max).toFixed(2)}"` : '';
+        const tip = [h?.label, lv.length ? (opts.workerId ? (date <= t ? 'kivett szabadság' : 'tervezett szabadság') : `${lv.length} fő szabadságon`) : ''].filter(Boolean).join(' · ');
+        cells.push(`<button type="button" class="${cls}"${style} data-lc="${date}"${tip ? ` title="${esc(tip)}"` : ''}><span>${d}</span>${!opts.workerId && lv.length ? `<i>${lv.length}</i>` : ''}</button>`);
+      }
+      return `<div class="lc-m"><b>${huM.format(mDate(m))}</b><div class="lc-g"><em>H</em><em>K</em><em>Sze</em><em>Cs</em><em>P</em><em>Szo</em><em>V</em>${cells.join('')}</div></div>`;
+    };
+    const days = months.reduce((a, m) => a + Object.entries(byDay).filter(([d]) => d.startsWith(m)).length, 0);
+    el.innerHTML = `<div class="calhead lc-nav"><button type="button" class="back" data-lcn="-1" aria-label="Előző hónap">${ICONS.back}</button>
+        <b>${huM.format(mDate(months[0]))} – ${huM.format(mDate(months[2]))}</b>
+        <button type="button" class="back" data-lcn="1" aria-label="Következő hónap" style="transform:scaleX(-1)">${ICONS.back}</button></div>
+      <div class="lc-wrap">${months.map(grid).join('')}</div>
+      <p class="tabs-note lc-leg"><span><i class="lc-sw past"></i> kivett</span><span><i class="lc-sw plan"></i> tervezett</span><span><i class="lc-sw hol"></i> munkaszüneti nap</span><span>${opts.workerId ? `${days} szabadságnap ebben a 3 hónapban` : 'a szám: hányan vannak szabadságon – koppints a napra a nevekért'}</span><span>Lapozás: nyilakkal vagy oldalra húzva.</span></p>
+      <div class="upcoming lc-day" hidden></div>`;
+    const showDay = (date) => {
+      picked = date;
+      el.querySelectorAll('[data-lc]').forEach((b) => b.classList.toggle('sel', b.dataset.lc === date));
+      if (opts.workerId) return;
+      const box = el.querySelector('.lc-day'); const lv = byDay[date] || []; box.hidden = false;
+      box.innerHTML = `<span class="label">${fullDate(date)}</span>${lv.length ? lv.map((e) => `<a href="#/szabadsag/${e.worker_id}"><b>${date <= t ? 'kivett' : 'tervezett'}</b><span>${esc(e.name)}</span><em></em></a>`).join('') : '<p class="tabs-note" style="margin:0">Ezen a napon senki nincs szabadságon.</p>'}`;
+    };
+    el.querySelectorAll('[data-lc]').forEach((b) => (b.onclick = () => showDay(b.dataset.lc)));
+    if (picked && months.some((m) => picked.startsWith(m))) showDay(picked);
+    el.querySelectorAll('[data-lcn]').forEach((b) => (b.onclick = () => { start = addM(start, Number(b.dataset.lcn)); draw(); }));
+  };
+  // lapozás oldalra húzással (telefonon)
+  let x0 = null, y0 = null;
+  el.addEventListener('touchstart', (e) => { x0 = e.touches[0].clientX; y0 = e.touches[0].clientY; }, { passive: true });
+  el.addEventListener('touchend', (e) => {
+    if (x0 == null) return; const dx = e.changedTouches[0].clientX - x0, dy = e.changedTouches[0].clientY - y0; x0 = null;
+    if (Math.abs(dx) > 60 && Math.abs(dx) > 1.5 * Math.abs(dy)) { start = addM(start, dx < 0 ? 1 : -1); draw(); }
+  }, { passive: true });
+  el.innerHTML = '<p class="tabs-note">Betöltés…</p>';
+  await draw();
+}
+
 async function viewLeave(q) {
   const year = +q.get('y') || leaveYearDefault();
   const { workers, groups } = await api(`/leave/overview?year=${year}`);
@@ -1152,10 +1210,17 @@ async function viewLeave(q) {
       <div class="pills"><span class="pill">${workers.length} dolgozó</span>${totalPlanned ? `<span class="pill">${totalPlanned} tervezett nap</span>` : ''}</div></div>
     ${yearNav(year, '/szabadsag')}
     ${noBudget ? `<p class="tabs-note">${noBudget} dolgozónál még nincs megadva a ${year}. évi szabadság-keret. Koppints a dolgozóra, és add meg.</p>` : ''}
+    <div class="seg" style="margin-top:12px"><a class="segl ${q.get('v') === 'naptar' ? '' : 'on'}" href="#/szabadsag?y=${year}">Lista</a><a class="segl ${q.get('v') === 'naptar' ? 'on' : ''}" href="#/szabadsag?y=${year}&v=naptar">Naptár</a></div>
+    ${q.get('v') === 'naptar' ? '<div id="lcal" style="margin-top:12px"></div>' : `
     <label class="search">${ICONS.search}<input id="q" type="search" placeholder="Név keresése" aria-label="Név keresése"></label>
     ${usedGroups.length ? `<div class="quick chips" id="gf"><button type="button" data-g="0" aria-pressed="true">Mindenki</button>${usedGroups.map((g) => `<button type="button" data-g="${g.id}">${esc(g.name)}</button>`).join('')}</div>` : ''}
-    <div class="items" id="l" style="margin-top:12px"></div>
+    <div class="items" id="l" style="margin-top:12px"></div>`}
     <a class="fab" href="#/szabadsag/uj?y=${year}">${ICONS.plus}Szabadság</a>${nav('leave')}`;
+  if (q.get('v') === 'naptar') {
+    const now = today(); const start = Number(now.slice(0, 4)) === year ? now.slice(0, 7) : `${year}-01`;
+    $app.classList.add('wide');
+    return leaveCalendar(document.getElementById('lcal'), { start });
+  }
   const draw = () => {
     const qv = document.getElementById('q').value.trim().toLowerCase();
     const rows = workers.filter((w) => w.name.toLowerCase().includes(qv) && (!f.g || w.group_id === f.g));
@@ -1190,6 +1255,7 @@ async function viewLeaveWorker(id, q) {
         <div style="flex:1;min-width:0"><label class="label" for="bc">Átvitt az előző évből</label><input class="input" id="bc" type="number" inputmode="numeric" min="-366" max="366" value="${budget.carry}"></div></div>
       ${prevRem !== null && prevRem > 0 && !budget.carry ? `<button type="button" class="btn ghost small" id="carry" style="margin-top:8px">Átvitel az előző évből (${prevRem} nap)</button>` : ''}
       <button class="btn small" type="submit" style="margin-top:10px">Keret mentése</button></form>
+    <div class="field"><span class="label">Naptár</span><div id="lcal"></div></div>
     <div class="field"><span class="label">Kivett szabadságok</span>${ranges.length ? `<div class="entries">${ranges.map((r) => `<div class="entry"><div class="bal pos">${nap(r.days)}</div>
       <div class="meta"><b>${rangeText(r)}</b><span>${r.note ? esc(r.note) : r.to > t ? 'tervezett' : 'kivett'}</span></div><button class="undo" data-delr="${r.ids.join(',')}">Törlés</button></div>`).join('')}</div>` : '<p class="tabs-note" style="margin:0">Ebben az évben még nincs rögzített szabadság.</p>'}</div>${nav('leave')}`;
   const $ = (x) => document.getElementById(x);
@@ -1199,6 +1265,7 @@ async function viewLeaveWorker(id, q) {
     catch (err) { toast(err.message); }
   };
   const carry = $('carry'); if (carry) carry.onclick = () => { $('bc').value = prevRem; };
+  { const now = today(); leaveCalendar($('lcal'), { workerId: id, start: Number(now.slice(0, 4)) === year ? now.slice(0, 7) : `${year}-01` }); }
   document.querySelectorAll('[data-delr]').forEach((b) => (b.onclick = async () => {
     if (b.dataset.armed !== '1') { b.dataset.armed = '1'; b.textContent = 'Biztos?'; setTimeout(() => { b.dataset.armed = ''; b.textContent = 'Törlés'; }, 3000); return; }
     try { await api('/leave/delete', { method: 'POST', body: { ids: b.dataset.delr.split(',').map(Number) } }); toast('Törölve'); viewLeaveWorker(id, q); } catch (err) { toast(err.message); }
