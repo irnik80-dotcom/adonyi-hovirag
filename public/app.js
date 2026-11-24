@@ -663,7 +663,7 @@ async function viewSettings() {
   const [{ workers, groups, warn_high_min: warnHigh }, { templates }, { presets: presetsList }, { days: holDays }] = await Promise.all([api('/workers'), api('/templates'), api('/presets'), api(`/holidays?years=${hy},${hy + 1}`)]);
   const newGroups = new Set();
   $app.innerHTML = `
-    <div class="topbar"><h2>Beállítások</h2></div>
+    <div class="head"><div><small>Adonyi Hóvirág Óvoda</small><h1>Beállítások</h1></div>${ICONS.flowerArt}</div>
     <form id="f"><div class="field"><label for="nm">Új dolgozó</label>
       <input class="input" id="nm" placeholder="Teljes név" maxlength="80" required></div>
       ${groups.length ? `<div class="field"><span class="label">Munkakör (kötelező)</span><div class="quick chips mt-0" id="ng">${groups.map((g) => `<button type="button" data-ng="${g.id}" aria-pressed="false">${esc(g.name)}</button>`).join('')}</div>
@@ -900,7 +900,7 @@ async function viewReportForm(q) {
   const st = { mode: 'sheets' };
   const useGroups = groups.filter((g) => active.some((w) => gidsOf(w).includes(g.id)));
   $app.innerHTML = `
-    <div class="topbar"><h2>Kimutatás</h2></div>
+    <div class="head"><div><small>Adonyi Hóvirág Óvoda</small><h1>Kimutatás</h1></div>${ICONS.flowerArt}</div>
     <div class="seg mt-10"><a class="segl on" href="#/kimutatas">Túlóra</a><a class="segl" href="#/kimutatas/szabadsag">Szabadság</a></div>
     <form id="f">
     <div class="field"><span class="label">Forma</span><div class="seg">
@@ -1038,7 +1038,7 @@ async function viewCalendar(q) {
     cells.push(`<button type="button" class="day ${date === srvToday ? 'today' : ''} ${date > srvToday ? 'future' : ''}${kind}" data-day="${date}"${h ? ` title="${esc(h.label)}"` : ''}><span>${d}</span>${n ? `<i>${n}</i>` : ''}${(byLeave[date] || []).length ? `<i class="lv">${byLeave[date].length}</i>` : ''}${(byPlus[date] || []).length ? `<i class="pl">${byPlus[date].length}</i>` : ''}</button>`);
   }
   $app.innerHTML = `
-    <div class="topbar"><h2>Naptár</h2></div>
+    <div class="head"><div><small>Adonyi Hóvirág Óvoda</small><h1>Naptár</h1></div>${ICONS.flowerArt}</div>
     <div class="calhead"><a class="back" href="#/naptar?m=${key(prev)}" aria-label="Előző hónap">${ICONS.back}</a><b>${title}</b>
       <a class="back" href="#/naptar?m=${key(next)}" aria-label="Következő hónap" style="transform:scaleX(-1)">${ICONS.back}</a></div>
     <div class="calgrid"><span>H</span><span>K</span><span>Sze</span><span>Cs</span><span>P</span><span>Szo</span><span>V</span>${cells.join('')}</div>
@@ -1435,7 +1435,7 @@ async function viewLeaveReportForm() {
   const months = Array.from({ length: 12 }, (_, i) => new Intl.DateTimeFormat('hu-HU', { month: 'long' }).format(new Date(2000, i, 1)));
   const selMonth = y0 === now.getFullYear() ? now.getMonth() : 0;
   $app.innerHTML = `
-    <div class="topbar"><h2>Kimutatás</h2></div>
+    <div class="head"><div><small>Adonyi Hóvirág Óvoda</small><h1>Kimutatás</h1></div>${ICONS.flowerArt}</div>
     <div class="seg mt-10"><a class="segl" href="#/kimutatas">Túlóra</a><a class="segl on" href="#/kimutatas/szabadsag">Szabadság</a></div>
     <form id="f">
     <div class="field"><span class="label">Forma</span><div class="seg"><button type="button" data-mode="sum" aria-pressed="true">Összesítő (mindenki egyben)</button><button type="button" data-mode="each" aria-pressed="false">Dolgozónként</button></div></div>

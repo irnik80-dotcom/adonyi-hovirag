@@ -31,13 +31,14 @@ const ensure = (env) => (ready ??= env.DB.batch(SCHEMA.map((q) => env.DB.prepare
 
 const q = (name) => `"${String(name).replace(/"/g, '""')}"`;
 
-// Táblák és oszlopaik egyetlen lekérdezéssel
+// Táblák és oszlopaik (a Cloudflare belső _cf_ tábláit nem lehet olvasni, kihagyjuk)
 async function tableColumns(env) {
-  const rows = (await env.DB.prepare(
-    `SELECT m.name AS t, p.name AS c FROM sqlite_master m JOIN pragma_table_info(m.name) p
-     WHERE m.type = 'table' AND m.name NOT LIKE 'sqlite_%' ORDER BY m.name, p.cid`).all()).results;
+  const names = (await env.DB.prepare(
+    "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND substr(name, 1, 4) <> '_cf_' ORDER BY name").all()).results
+    .map((r) => r.name).filter((t) => !SKIP_TABLES.has(t));
+  const info = await env.DB.batch(names.map((t) => env.DB.prepare(`PRAGMA table_info(${q(t)})`)));
   const out = {};
-  for (const r of rows) if (!SKIP_TABLES.has(r.t)) (out[r.t] ||= []).push(r.c);
+  names.forEach((t, i) => { out[t] = info[i].results.map((c) => c.name); });
   return out;
 }
 
@@ -75,7 +76,7 @@ export async function createBackup(env, kind = 'manual') {
   const row = await env.DB.prepare(
     'INSERT INTO backups (day, kind, tables, rows, bytes, raw_bytes, chunks) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id, at')
     .bind(budapestDay(), kind, Object.keys(snap.tables).length, snap.rowCount, gz.length, raw.length, parts.length).first();
-  await env.DB.batch(parts.map((p, n) => env.DB.prepare('INSERT INTO backup_chunks (backup_id, n, data) VALUES (?, ?, ?)').bind(row.id, n, p)));
+  await env.DB.batch(parts.map((p, n) => env.DB.prepare("INSERT INTO backup_chunks (backup_id, n, data) VALUES (?, ?, ?)").bind(row.id, n, p.buffer.slice(p.byteOffset, p.byteOffset + p.byteLength))));
   await prune(env);
   return { id: row.id, at: row.at, rows: snap.rowCount, bytes: gz.length };
 }
@@ -146,7 +147,16 @@ export async function restore(env, snap) {
 }
 const sqlStr = (s) => `'${String(s).replace(/'/g, "''")}'`;
 
-export async function handleBackup(request, env, { path, method, json, fail, audit }) {
+export async function handleBackup(request, env, ctx) {
+  try { return await route(request, env, ctx); }
+  catch (e) {
+    const msg = String(e?.message || e).slice(0, 300);
+    try { await ctx.audit(env, 'backup.fail', { error: msg }); } catch {}
+    return ctx.fail(500, `A mentés nem sikerült: ${msg}`);
+  }
+}
+
+async function route(request, env, { path, method, json, fail, audit }) {
   await ensure(env);
   if (path === '/api/backups' && method === 'GET') {
     const list = (await env.DB.prepare('SELECT id, at, day, kind, tables, rows, bytes, raw_bytes FROM backups ORDER BY id DESC').all()).results;
