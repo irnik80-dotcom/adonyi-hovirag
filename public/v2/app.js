@@ -32,6 +32,7 @@ const av = (id) => {
   const i = RANK.get(Number(id)) ?? Number(id); const [c, s, f] = PAL[i % 12];
   return `class="ini ${VAR[Math.floor(i / 12) % 3]}" style="--c:${c};--s:${s};--f:${f}"`;
 };
+const avSm = (id, name, cls = 'sm') => `<span ${av(id).replace('class="ini ', `class="ini ${cls} `)}>${esc(initials(name))}</span>`;
 const initials = (n) => n.split(/\s+/).filter(Boolean).slice(0, 2).map((p) => p[0].toUpperCase()).join('');
 const gidsOf = (w) => (w.group_ids ? String(w.group_ids).split(',').map(Number) : []);
 const uuid = () => (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`);
@@ -152,14 +153,14 @@ async function viewToday() {
   // teendők
   const todo = [];
   const unsigned = active.filter((x) => x.unsigned_old > 0);
-  if (unsigned.length) todo.push({ c: 'warn', t: `${unsigned.length} dolgozónak aláíratlan az előző havi túlóralapja`, s: unsigned.map((x) => x.name).join(', '), href: '#/emberek?f=alairatlan' });
+  if (unsigned.length) todo.push({ c: 'warn', t: `${unsigned.length} dolgozónak aláíratlan az előző havi túlóralapja`, p: unsigned.map((x) => [x, '']), href: '#/emberek?f=alairatlan' });
   const high = active.filter((x) => x.balance >= w.warn_high_min);
-  if (high.length) todo.push({ c: 'info', t: `${high.length} főnek ${fmt(w.warn_high_min)} fölött van a túlórája`, s: high.map((x) => `${x.name} (${fmt(x.balance)})`).join(', '), href: '#/emberek?f=magas' });
+  if (high.length) todo.push({ c: 'info', t: `${high.length} főnek ${fmt(w.warn_high_min)} fölött van a túlórája`, p: high.map((x) => [x, fmt(x.balance)]), href: '#/emberek?f=magas' });
   const neg = active.filter((x) => x.balance < 0);
-  if (neg.length) todo.push({ c: 'warn', t: `${neg.length} főnek mínuszban van a túlórája`, s: neg.map((x) => `${x.name} (${fmt(x.balance)})`).join(', '), href: '#/emberek?f=minusz' });
+  if (neg.length) todo.push({ c: 'warn', t: `${neg.length} főnek mínuszban van a túlórája`, p: neg.map((x) => [x, fmt(x.balance)]), href: '#/emberek?f=minusz' });
   if (lo) {
     const over = lo.workers.filter((x) => x.remaining < 0);
-    if (over.length) todo.push({ c: 'warn', t: `${over.length} fő túllépte a szabadságkeretét`, s: over.map((x) => `${x.name} (${x.remaining} nap)`).join(', '), href: '#/emberek?f=keret' });
+    if (over.length) todo.push({ c: 'warn', t: `${over.length} fő túllépte a szabadságkeretét`, p: over.map((x) => [{ id: x.worker_id, name: x.name }, `${x.remaining} nap`]), href: '#/emberek?f=keret' });
   }
   // következő két hét (holnaputántól)
   const days = [];
@@ -175,9 +176,9 @@ async function viewToday() {
       ${offToday.length ? `<div class="v-rows">${offToday.map(absRow).join('')}</div>` : `<p class="v-empty">${isOff(t) ? 'Ma nincs munkanap.' : 'Ma mindenki bent van.'}</p>`}</section>
     <section class="v-card"><div class="v-h"><b>${esc(tomorrowLabel)}</b><span>${dShort(tomorrow)}${offTomorrow.length ? ` · ${offTomorrow.length} fő hiányzik` : ''}</span></div>
       ${offTomorrow.length ? `<div class="v-rows">${offTomorrow.map(absRow).join('')}</div>` : '<p class="v-empty">Mindenki bent lesz.</p>'}</section>
-    ${todo.length ? `<section class="v-card"><div class="v-h"><b>Figyelj rá</b></div><div class="v-todo">${todo.map((x) => `<a href="${x.href}" class="${x.c}"><i></i><div><b>${esc(x.t)}</b>${x.s ? `<span>${esc(x.s)}</span>` : ''}</div>${I.next}</a>`).join('')}</div></section>` : ''}
+    ${todo.length ? `<section class="v-card"><div class="v-h"><b>Figyelj rá</b></div><div class="v-todo">${todo.map((x) => `<a href="${x.href}" class="${x.c}"><i></i><div><b>${esc(x.t)}</b>${x.p ? `<span class="v-pp">${x.p.map(([pw, ex]) => `<span class="pm">${avSm(pw.id, pw.name)}${esc(pw.name)}${ex ? ` <em>${esc(ex)}</em>` : ''}</span>`).join('')}</span>` : ''}</div>${I.next}</a>`).join('')}</div></section>` : ''}
     <section class="v-card"><div class="v-h"><b>Következő két hét</b><a href="#/naptar">Naptár</a></div>
-      ${days.length ? `<div class="v-days">${days.map((x) => `<a href="#/naptar?d=${x.d}"><b>${esc(dShort(x.d))}</b><em>${esc(dWeek(x.d).slice(0, 3))}</em><span>${x.a.map((a) => `<i class="${KIND[a.k].c}"></i>${esc(a.name.split(' ').slice(-1)[0])}`).join(', ')}</span></a>`).join('')}</div>` : '<p class="v-empty">Nincs rögzített távollét.</p>'}</section>
+      ${days.length ? `<div class="v-days">${days.map((x) => `<a href="#/naptar?d=${x.d}"><b>${esc(dShort(x.d))}</b><em>${esc(dWeek(x.d).slice(0, 3))}</em><span>${x.a.map((a) => `<span class="pm">${avSm(a.worker_id, a.name)}${esc(a.name.split(' ').slice(-1)[0])}<i class="${KIND[a.k].c}"></i></span>`).join('')}</span></a>`).join('')}</div>` : '<p class="v-empty">Nincs rögzített távollét.</p>'}</section>
     <div class="v-stats"><div><small>Összes túlóra</small><b>${fmt(total)}</b></div><div><small>Aktív dolgozó</small><b>${active.length} fő</b></div></div>
     ${nav('ma')}`;
 }
@@ -291,7 +292,7 @@ async function viewAdd(q) {
     const kp = presets.filter((p) => p.kind === k);
     const quickMin = k === 'credit' ? [30, 60, 90, 120, 180, 240] : [60, 120, 240, 480];
     $app.innerHTML = `${topbar(KIND[k].t, back)}
-      <div class="v-sum"><button type="button" data-to="1" class="tag ${KIND[k].c}">${KIND[k].s}</button><button type="button" data-to="2" class="who">${ppl.length === 1 ? esc(ppl[0].name) : `${ppl.length} dolgozó`}<small>módosít</small></button></div>
+      <div class="v-sum"><button type="button" data-to="1" class="tag ${KIND[k].c}">${KIND[k].s}</button><button type="button" data-to="2" class="who"><span class="v-stack">${ppl.slice(0, 4).map((x) => avSm(x.id, x.name)).join('')}</span>${ppl.length === 1 ? esc(ppl[0].name) : `${ppl.length} dolgozó`}<small>módosít</small></button></div>
       <form id="f">
       ${k !== 'leave' ? `<div class="field"><span class="label">Mennyi?</span>
         <div class="v-amount"><button type="button" data-a="-15" aria-label="15 perccel kevesebb">−</button><b id="amt">${fmt(st.minutes)}</b><button type="button" data-a="15" aria-label="15 perccel több">+</button></div>
@@ -419,7 +420,7 @@ async function viewPerson(id) {
   }
   const ent = (e) => `<div class="v-ent"><b class="${e.minutes < 0 ? 'c-neg' : 'c-pos'}">${fmt(e.minutes, true)}</b><div><span>${esc(dShort(e.date))} · ${e.kind === 'opening' ? 'Nyitó egyenleg' : e.kind === 'credit' ? 'Túlóra' : 'Szabadidő'}</span>${e.note ? `<small>${esc(e.note)}</small>` : ''}</div></div>`;
   const status = w.active === 2 ? `<span class="tag">parkoltatva${w.park_note ? `: ${esc(w.park_note)}` : ''}</span>` : w.active === 0 ? '<span class="tag">kilépett</span>' : '';
-  $app.innerHTML = `${topbar(w.name, '#/emberek')}
+  $app.innerHTML = `<div class="topbar v-ptop"><a class="back" href="#/emberek" aria-label="Vissza">${I.back}</a>${avSm(w.id, w.name, 'lg')}<h2>${esc(w.name)}</h2></div>
     <p class="v-date">${esc(groupName || 'nincs munkakör')} ${status}</p>
     <div class="v-tiles">
       <div class="v-tile"><small>Túlóra egyenleg</small><b class="${w.balance < 0 ? 'c-neg' : ''}">${fmt(w.balance)}</b><span>${w.planned ? `tervezett: ${fmt(w.planned, true)}` : w.signed_to ? `aláírva: ${dShort(w.signed_to)}-ig` : 'még nincs aláírva'}</span></div>
