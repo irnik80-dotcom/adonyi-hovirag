@@ -170,3 +170,11 @@ i.k-leave{background:var(--k-leave)}i.k-use{background:var(--k-use)}i.k-credit{b
 .ini.av-solid{background:var(--c);color:#fff}
 .ini.av-ring{background:var(--surface);color:var(--c);box-shadow:inset 0 0 0 2.5px var(--c)}
 @media (prefers-color-scheme:dark){.ini.av-soft{background:color-mix(in srgb,var(--c) 38%,#12181B);color:color-mix(in srgb,var(--c) 40%,#fff)}.ini.av-ring{color:color-mix(in srgb,var(--c) 70%,#fff)}}
+.v-lvr{flex-wrap:wrap;align-items:center}
+.v-lvm{flex:1;min-width:0}
+.v-lvm b{display:block}
+.v-lvm small{display:block;font-size:12.5px;color:var(--ink-2)}
+.v-lva{display:flex;gap:6px;margin-left:auto}
+.chipbtn{border:1px solid var(--line);background:var(--bg);color:var(--ink);border-radius:99px;padding:7px 12px;font:inherit;font-size:13px;font-weight:700;cursor:pointer}
+.chipbtn.del{color:var(--coral)}
+.chipbtn.armed{background:var(--coral);color:#fff;border-color:var(--coral)}
