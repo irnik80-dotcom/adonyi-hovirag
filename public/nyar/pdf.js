@@ -3,6 +3,17 @@
 import { staffByRole, WEEKDAY_SHORT, MONTH_NAMES, dotted } from './model.js';
 
 const MM = 72 / 25.4;
+// A fő alkalmazás hóvirág logója (viewBox 20 18 90 100)
+const FLOWER = [
+  { d: 'M50 114C47 84 38 58 24 34C42 52 52 82 54 114Z' },
+  { d: 'M54 114C58 86 70 66 84 46C72 68 62 90 58 114Z', o: 0.7 },
+  { d: 'M54 114C52 76 54 44 64 30C70 22 80 22 80 36', stroke: true },
+  { d: 'M76.4 38A3.6 4.6 0 1 0 83.6 38A3.6 4.6 0 1 0 76.4 38Z' },
+  { d: 'M80 40C72 52 68 66 72 82C80 70 84 54 80 40Z' },
+  { d: 'M80 40C66 46 56 62 56 78C68 72 78 58 80 40Z', o: 0.8 },
+  { d: 'M80 40C94 46 104 62 104 78C92 72 82 58 80 40Z', o: 0.8 },
+  { d: 'M70 70C74 78 86 78 90 70C86 74 74 74 70 70Z', o: 0.55 },
+];
 const A3 = [420 * MM, 297 * MM];
 
 // A pdf-lib és a fontkit önálló (UMD) változata globális változót hoz létre: PDFLib, fontkit
@@ -36,6 +47,7 @@ export async function makePdf(plan, cal, abs, val, months, deps = null, sheets =
   const B = await doc.embedFont(deps.fonts.bold, { subset: true });
   doc.setTitle(`${plan.name}`); doc.setAuthor(plan.settings.report.title || ''); doc.setCreator('HÓVIRÁG – nyári beosztás');
   const s = plan.settings, rep = s.report;
+  const green = rgb(0x1E / 255, 0x4D / 255, 0x3B / 255);
   const ink = rgb(0.09, 0.15, 0.12), grey = rgb(0.36, 0.42, 0.38), line = rgb(0.55, 0.6, 0.57), red = rgb(0.7, 0.1, 0.05);
   const groups = staffByRole(plan);
   const selAlt = plan.alternatives.find((a) => a.id === plan.selected);
@@ -67,19 +79,27 @@ export async function makePdf(plan, cal, abs, val, months, deps = null, sheets =
     const centered = (t, x, w, y, size, font = F, color = ink) => { t = fit(t, font, size, w - 2); text(t, x + (w - font.widthOfTextAtSize(t, size)) / 2, y, size, font, color); };
     const rect = (x, y, w, h, fill) => page.drawRectangle({ x, y, width: w, height: h, color: fill });
 
-    // fejléc
-    const title = `${sheets.length > 1 && label ? label + ' · ' : rep.title ? rep.title + ' – ' : ''}Nyári munkabeosztás · ${mk.slice(0, 4)}. ${MONTH_NAMES[Number(mk.slice(5, 7)) - 1]}`;
-    text(fit(title, B, 17, (right - left) * 0.62), left, top - 17, 17, B);
-    const meta = `Időszak: ${dotted(plan.period.from)} – ${dotted(plan.period.to)} · Készült: ${madeS}${label ? ' · Változat: ' + label : ''}`;
-    text(meta, right - F.widthOfTextAtSize(meta, 9), top - 10, 9, F, grey);
+    // fejléc: hóvirág logó, intézmény, cím, hónap, adatok; alatta zöld vonal
+    const HH = 58; // a fejléc magassága
+    const logoH = 50, sc = logoH / 100;
+    const lx0 = left - 20 * sc, ly0 = top + 18 * sc - 2;
+    for (const fl of FLOWER) page.drawSvgPath(fl.d, { x: lx0, y: ly0, scale: sc, ...(fl.stroke ? { borderColor: green, borderWidth: 3.2 * sc } : { color: green, opacity: fl.o ?? 1 }) });
+    const tx = left + 90 * sc + 14;
+    text(fit(rep.title || 'Óvoda', B, 18, (right - left) * 0.45), tx, top - 22, 18, B, green);
+    text(sheets.length > 1 && label ? `Nyári munkabeosztás · ${label}` : 'Nyári munkabeosztás', tx, top - 40, 11.5, F, grey);
+    if (sub) text(fit(sub, F, 8.5, (right - left) * 0.5), tx, top - 53, 8.5, F, grey);
+    const mTitle = `${mk.slice(0, 4)}. ${MONTH_NAMES[Number(mk.slice(5, 7)) - 1]}`;
+    text(mTitle, right - B.widthOfTextAtSize(mTitle, 24), top - 26, 24, B, ink);
+    const meta = `Időszak: ${dotted(plan.period.from)} – ${dotted(plan.period.to)} · Készült: ${madeS}`;
+    text(meta, right - F.widthOfTextAtSize(meta, 9), top - 41, 9, F, grey);
     const status = val.ok ? 'Érvényes beosztás' : `NEM VÉGLEGES – ${val.errors.length} hiba`;
-    text(status, right - B.widthOfTextAtSize(status, 10), top - 23, 10, B, val.ok ? grey : red);
-    if (sub) text(fit(sub, F, 9, (right - left) * 0.62), left, top - 29, 9, F, grey);
+    text(status, right - B.widthOfTextAtSize(status, 9.5), top - 54, 9.5, B, val.ok ? green : red);
+    page.drawRectangle({ x: left, y: top - HH - 4, width: right - left, height: 2, color: green });
 
     // méretek
     const headH = 26, legendH = 34, gap = 8;
     const nRows = groups.reduce((a, g) => a + 1 + g.workers.length, 0);
-    const tableTop = top - (sub ? 40 : 32);
+    const tableTop = top - HH - 14;
     const availH = tableTop - headH - (bottom + legendH + gap);
     const rowH = Math.max(8, Math.min(22, availH / Math.max(1, nRows)));
     const grpH = rowH;
