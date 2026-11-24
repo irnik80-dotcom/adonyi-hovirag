@@ -128,3 +128,17 @@
 .ny-pref thead th small{display:block;font-size:9px}
 b.ny-pi{color:#2E7D22}b.ny-pn{color:#B23A1E}
 .ny-grid tr.grp td{background:#DDE8DA}
+.ny-selbar-top{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:12px}
+.ny-selbar-top .btn.small{margin:0}
+.ny-selmode{grid-template-columns:1fr 1fr;min-width:220px}
+.ny-grid td.sel{box-shadow:inset 0 0 0 3px #1E4D3B;filter:brightness(.92)}
+.ny-grid td.anc{box-shadow:inset 0 0 0 3px #FF6F4E}
+.ny-selbar{position:fixed;left:0;right:0;bottom:0;z-index:25;display:flex;justify-content:center;padding:0 10px calc(10px + env(safe-area-inset-bottom))}
+.ny-selbar-in{background:var(--surface);border:1px solid var(--line);border-radius:20px;box-shadow:0 -10px 34px -16px rgba(0,0,0,.4);padding:12px 14px;width:min(760px,100%)}
+.ny-selbar-in .ny-btns{margin-top:8px}
+.ny-selbar-in .btn.small{margin:0}
+#app.nyar{padding-bottom:140px}
+/* a fő menü alul van (telefon/tablet): a kijelölősáv fölé kerül */
+@media (max-width:999px){.ny-selbar{bottom:calc(88px + env(safe-area-inset-bottom));padding-bottom:0}#app.nyar{padding-bottom:230px}}
+/* széles képernyőn a menü bal oldalt van: a nyári oldal tartalma mellette kezdődik */
+@media (min-width:1000px){#app.nyar{max-width:none;margin-left:156px;margin-right:24px}}
