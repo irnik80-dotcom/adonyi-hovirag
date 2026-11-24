@@ -144,13 +144,16 @@ async function viewToday() {
     const over = lo.workers.filter((x) => x.remaining < 0);
     if (over.length) todo.push({ c: 'warn', t: `${over.length} fő túllépte a szabadságkeretét`, s: over.map((x) => `${x.name} (${x.remaining} nap)`).join(', '), href: '#/emberek?f=keret' });
   }
-  for (const n of w.namedays || []) todo.push({ c: 'ok', t: `${n.name} névnapja ${n.in_days === 0 ? 'ma' : n.in_days === 1 ? 'holnap' : `${dWeek(n.date)} (${dShort(n.date)})`}`, href: `#/ember/${n.worker_id}` });
   // következő két hét (holnaputántól)
   const days = [];
   for (let d = addDays(tomorrow, 1); d <= horizon; d = addDays(d, 1)) { const a = absOn(cal, d); if (a.length && !isOff(d)) days.push({ d, a }); }
   const total = active.reduce((s, x) => s + x.balance, 0);
+  const nd = w.namedays || [];
   const tomorrowLabel = tomorrow === addDays(t, 1) ? 'Holnap' : `${dWeek(tomorrow)[0].toUpperCase()}${dWeek(tomorrow).slice(1)}`;
   $app.innerHTML = `${head('Ma', 'Adonyi Hóvirág Óvoda', `<p class="v-date">${esc(dLong(t))}${isOff(t) ? ' · <b>szünnap</b>' : ''}</p>`)}
+    ${nd.length || w.nameday_next ? `<section class="v-card v-nd"><div class="v-h"><b>Névnapok</b><span>következő 7 nap</span></div>
+      ${nd.length ? `<div class="v-rows">${nd.map((n) => `<a class="v-row${n.in_days === 0 ? ' today' : ''}" href="#/ember/${n.worker_id}"><span class="ini">${n.in_days === 0 ? '🌷' : esc(initials(n.name))}</span><b>${esc(n.name)}</b><em class="tag">${n.in_days === 0 ? 'ma' : n.in_days === 1 ? 'holnap' : `${esc(dWeek(n.date))}, ${esc(dShort(n.date))}`}</em></a>`).join('')}</div>`
+        : `<p class="v-empty">A következő héten nincs névnap. Legközelebb: <b>${esc(w.nameday_next.name)}</b>, ${esc(dShort(w.nameday_next.date))} (${w.nameday_next.in_days} nap múlva).</p>`}</section>` : ''}
     <section class="v-card"><div class="v-h"><b>Ma nincs bent</b><span>${offToday.length ? `${offToday.length} fő` : ''}</span></div>
       ${offToday.length ? `<div class="v-rows">${offToday.map(absRow).join('')}</div>` : `<p class="v-empty">${isOff(t) ? 'Ma nincs munkanap.' : 'Ma mindenki bent van.'}</p>`}</section>
     <section class="v-card"><div class="v-h"><b>${esc(tomorrowLabel)}</b><span>${dShort(tomorrow)}${offTomorrow.length ? ` · ${offTomorrow.length} fő hiányzik` : ''}</span></div>
