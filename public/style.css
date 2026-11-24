@@ -419,3 +419,8 @@ h1,h2,.hello h1{font-weight:800;letter-spacing:-.02em}
   .fab{bottom:28px}
   #toast{bottom:28px}
 }
+/* a menü a görgethető táblázatok (pl. nyári beosztás) fölött legyen */
+.nav{z-index:15}
+/* 6 menüpont telefonon: kisebb felirat, hogy elférjenek */
+@media (max-width:440px){.nav{padding-left:2px;padding-right:2px}.nav a{font-size:10.5px;letter-spacing:-.01em;min-width:0}.nav a span{white-space:nowrap}.nav a svg{width:24px;height:24px}}
+@media (max-width:370px){.nav a{font-size:9.8px}}

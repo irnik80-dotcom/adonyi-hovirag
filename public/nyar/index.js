@@ -83,7 +83,7 @@ async function viewPlans($app) {
   const { plans } = await C.api('/summer/plans');
   const y = new Date().getFullYear() + 1;
   $app.innerHTML = `
-    <div class="topbar"><a class="back" href="#/beallitasok" aria-label="Vissza">${backIcon}</a><h2>Nyári beosztás</h2></div>
+    <div class="topbar"><h2>Nyári beosztás</h2></div>
     <p class="tabs-note">Az óvoda nyári, váltott munkarendjének tervezése. A dolgozókat és munkaköröket a fő alkalmazásból veszi át, azokat nem módosítja.</p>
     <div class="field"><span class="label">Tervek</span>
       ${plans.length ? plans.map((p) => `<a class="set-item ny-plan" href="${BASE}/${p.id}"><span><b>${esc(p.name)}</b><small>Módosítva: ${esc(p.updated_at.slice(0, 16).replace('T', ' '))} UTC</small></span><em>${p.year}</em></a>`).join('') : '<p class="tabs-note">Még nincs terv.</p>'}
@@ -91,7 +91,8 @@ async function viewPlans($app) {
     <form id="nf" class="field"><label for="ny">Új terv éve</label>
       <div class="row"><input class="input" id="ny" type="number" min="2024" max="2100" value="${y}" required><button class="btn small" type="submit">Új terv</button></div>
       <p class="tabs-note">Az időszak, a létszámigény és a munkakörök a létrehozás után a Beállításokban módosíthatók.</p></form>
-    <form id="nfi" class="field"><span class="label">Visszatöltés mentett fájlból</span><input class="input" id="nfile" type="file" accept=".json,application/json"></form>`;
+    <form id="nfi" class="field"><span class="label">Visszatöltés mentett fájlból</span><input class="input" id="nfile" type="file" accept=".json,application/json"></form>
+    ${C.nav ? C.nav() : ''}`;
   $('nf').onsubmit = async (e) => {
     e.preventDefault();
     const year = Number($('ny').value);
@@ -124,7 +125,8 @@ function renderPlan($app, tab, q) {
     <div class="topbar"><a class="back" href="${BASE}" aria-label="Vissza a tervekhez">${backIcon}</a><h2>${esc(p.name)}</h2>${badge}</div>
     <div class="ny-sub"><span>${M.dotted(p.period.from)} – ${M.dotted(p.period.to)} · ${st.cal.workdays.length} munkanap</span><span id="nysave" class="ny-save">${st.dirty ? 'Mentés…' : 'Mentve'}</span></div>
     <nav class="ny-tabs" aria-label="Nyári beosztás részei">${TABS.map(([k, l]) => `<a href="${BASE}/${st.id}?t=${k}" class="${k === tab ? 'on' : ''}" ${k === tab ? 'aria-current="page"' : ''}>${l}</a>`).join('')}</nav>
-    <div id="nyv"></div>`;
+    <div id="nyv"></div>
+    ${C.nav ? C.nav() : ''}`;
   const el = $('nyv');
   const fn = { attekintes: tabOverview, beallitasok: tabSettings, dolgozok: tabStaff, tavollet: tabAbsences, generalas: tabGenerate, beosztas: tabSchedule, ellenorzes: tabCheck, nyomtatas: tabPrint }[tab];
   fn(el, q);
@@ -658,7 +660,7 @@ function cellView(p, wid, day, code) {
   if (code) return { cls: code.toLowerCase(), bg: s.colors[code], t: s.abbr[code] };
   return { cls: 'pi', bg: s.colors.piheno, t: s.abbr.piheno };
 }
-function gridHtml(p, grid, month, { editable, counts }) {
+function gridHtml(p, grid, month, { editable, counts, selected = null, anchor = null }) {
   const days = month.days;
   const cnt = (gid, d, sh) => counts?.[`${d}|${sh}|${gid}`];
   return `<div class="ny-gridwrap"><table class="ny-grid"><thead><tr><th class="nm">Dolgozó</th>${days.map((d) => `<th class="${d.work ? '' : d.weekend ? 'we' : 'cl'}" title="${d.off ? esc(d.off) : ''}"><span>${Number(d.date.slice(8))}</span><small>${M.WEEKDAY_SHORT[d.dow]}</small></th>`).join('')}</tr></thead>
@@ -667,7 +669,9 @@ function gridHtml(p, grid, month, { editable, counts }) {
         const code = grid?.[w.id]?.[d.date] || null;
         const v = cellView(p, w.id, d, code);
         const lk = p.locks[M.lockKey(w.id, d.date)];
-        return `<td class="${v.cls}${lk ? ' lk' : ''}" style="background:${esc(v.bg)}" ${editable && d.work ? `data-w="${w.id}" data-d="${d.date}" tabindex="0" role="button" aria-label="${esc(w.name)}, ${M.dotted(d.date)}: ${v.t || 'pihenő'}"` : ''}>${esc(v.t)}</td>`;
+        const sk = selected && selected.has(M.lockKey(w.id, d.date)) ? ' sel' : '';
+        const an = anchor && anchor.wid === w.id && anchor.d === d.date ? ' anc' : '';
+        return `<td class="${v.cls}${lk ? ' lk' : ''}${sk}${an}" style="background:${esc(v.bg)}" ${editable && d.work ? `data-w="${w.id}" data-d="${d.date}" tabindex="0" role="button" aria-label="${esc(w.name)}, ${M.dotted(d.date)}: ${v.t || 'pihenő'}"` : ''}>${esc(v.t)}</td>`;
       }).join('')}</tr>`).join('')}
       ${counts ? M.shiftsOf(role).map((sh) => `<tr class="cnt"><th class="nm">${M.SHIFT_LABEL[sh]}${role.groupsPer > 0 && Object.keys(p.children || {}).length ? '' : ` (min. ${role.min[sh]})`}</th>${days.map((d) => {
         if (!d.work) return '<td class="we"></td>';
@@ -712,14 +716,74 @@ function tabSchedule(el, q) {
     <div class="ny-status ${v.ok ? 'ok' : 'bad'}"><b>${v.ok ? '✓ Érvényes beosztás' : `✗ ${v.errors.length} hiba`}</b>
       <span>${v.warnings.length ? `${v.warnings.length} figyelmeztetés` : 'nincs figyelmeztetés'}</span><a href="${BASE}/${st.id}?t=ellenorzes">Részletek</a></div>
     ${chips}
-    <p class="tabs-note ny-hint">Koppints egy cellára a módosításhoz. A módosított cella rögzített (●): újrageneráláskor is megmarad.</p>
-    ${gridHtml(p, p.schedule.grid, month, { editable: true, counts: v.counts })}
+    <div class="ny-selbar-top">
+      <button class="btn small ${sel.on ? '' : 'ghost'}" id="selon" type="button" aria-pressed="${sel.on}">${sel.on ? 'Kijelölés bekapcsolva' : 'Több cella kijelölése'}</button>
+      ${sel.on ? `<div class="seg ny-selmode"><button type="button" data-sm="egy" aria-pressed="${!sel.range}">Egyesével</button><button type="button" data-sm="tol" aria-pressed="${sel.range}">Tól–ig</button></div>` : ''}
+    </div>
+    <p class="tabs-note ny-hint">${sel.on ? (sel.range ? 'Koppints egy dolgozó sorában a szakasz első, majd utolsó napjára (a hétvégék kimaradnak). Több szakasz is kijelölhető.' : 'Koppints a módosítandó cellákra; újra koppintva a kijelölés megszűnik.') : 'Koppints egy cellára a módosításhoz. A módosított cella rögzített (●): újrageneráláskor is megmarad.'}</p>
+    ${gridHtml(p, p.schedule.grid, month, { editable: true, counts: v.counts, selected: sel.on ? sel.cells : null, anchor: sel.anchor })}
     ${legendHtml(p)}
     ${nLocks ? `<button class="btn ghost small" id="unl" type="button" style="margin-top:10px">Összes rögzítés feloldása (${nLocks})</button>` : ''}`;
-  el.querySelector('.ny-grid').addEventListener('click', (e) => { const td = e.target.closest('td[data-w]'); if (td) openCell(Number(td.dataset.w), td.dataset.d); });
-  el.querySelector('.ny-grid').addEventListener('keydown', (e) => { if (e.key !== 'Enter' && e.key !== ' ') return; const td = e.target.closest('td[data-w]'); if (td) { e.preventDefault(); openCell(Number(td.dataset.w), td.dataset.d); } });
+  const act = (td) => (sel.on ? selectCell(td, el) : openCell(Number(td.dataset.w), td.dataset.d));
+  el.querySelector('.ny-grid').addEventListener('click', (e) => { const td = e.target.closest('td[data-w]'); if (td) act(td); });
+  el.querySelector('.ny-grid').addEventListener('keydown', (e) => { if (e.key !== 'Enter' && e.key !== ' ') return; const td = e.target.closest('td[data-w]'); if (td) { e.preventDefault(); act(td); } });
+  $('selon').onclick = () => { sel.on = !sel.on; sel.cells.clear(); sel.anchor = null; rerenderTab(); };
+  el.querySelectorAll('[data-sm]').forEach((b) => (b.onclick = () => { sel.range = b.dataset.sm === 'tol'; sel.anchor = null; rerenderTab(); }));
+  renderSelBar();
   if ($('unl')) $('unl').onclick = () => { if (!confirm('Feloldod az összes kézi rögzítést? A beosztás nem változik, de a következő generálás már szabadon módosíthatja ezeket a cellákat.')) return; p.locks = {}; changed({ rerender: rerenderTab }); };
 }
+// Több cella kijelölése (a terv megnyitásáig megmarad, hónapváltáskor is)
+const sel = { on: false, range: false, cells: new Set(), anchor: null };
+function selectCell(td, el) {
+  const wid = Number(td.dataset.w), d = td.dataset.d, k = M.lockKey(wid, d);
+  if (sel.range) {
+    if (!sel.anchor || sel.anchor.wid !== wid) { sel.anchor = { wid, d }; sel.cells.add(k); }
+    else {
+      const [a, b] = [sel.anchor.d, d].sort();
+      for (const x of st.cal.workdays) if (x >= a && x <= b) sel.cells.add(M.lockKey(wid, x));
+      sel.anchor = null;
+    }
+  } else if (sel.cells.has(k)) sel.cells.delete(k); else sel.cells.add(k);
+  // csak a rács celláinak jelölését frissítjük (gyors, és nem ugrik el a görgetés)
+  el.querySelectorAll('td[data-w]').forEach((c) => {
+    const kk = M.lockKey(c.dataset.w, c.dataset.d);
+    c.classList.toggle('sel', sel.cells.has(kk));
+    c.classList.toggle('anc', Boolean(sel.anchor && Number(c.dataset.w) === sel.anchor.wid && c.dataset.d === sel.anchor.d));
+  });
+  renderSelBar();
+}
+function renderSelBar() {
+  document.querySelector('.ny-selbar')?.remove();
+  if (!sel.on || !sel.cells.size || !location.hash.includes('t=beosztas')) return;
+  const p = st.plan;
+  const cells = [...sel.cells].map((k) => { const [w, d] = k.split('|'); return { wid: Number(w), d }; });
+  const roles = new Set(cells.map((c) => p.staff.find((s) => s.id === c.wid)?.group_id));
+  const shiftSets = [...roles].map((g) => M.shiftsOf(p.roles.find((r) => r.group_id === g)));
+  const common = ['DE', 'DU', 'D'].filter((x) => shiftSets.every((ss) => ss.includes(x)));
+  const lbl = { DE: 'Délelőtt', DU: 'Délután', D: 'Dolgozik', P: M.allWork(p) ? 'Nem dolgozik' : 'Pihenőnap' };
+  const bar = document.createElement('div');
+  bar.className = 'ny-selbar';
+  bar.innerHTML = `<div class="ny-selbar-in"><b>${cells.length} cella kijelölve</b>
+    <div class="ny-btns">${[...common, 'P'].map((c) => `<button class="btn small" type="button" data-bset="${c}">${lbl[c]}</button>`).join('')}
+    <button class="btn ghost small" type="button" id="bunl">Rögzítés feloldása</button><button class="btn ghost small" type="button" id="bclr">Kijelölés törlése</button></div>
+    ${roles.size > 1 && common.length < 2 ? '<small class="tabs-note">Különböző munkakörök vannak kijelölve, ezért csak a közös lehetőségek látszanak.</small>' : ''}</div>`;
+  document.body.append(bar);
+  bar.querySelectorAll('[data-bset]').forEach((b) => (b.onclick = () => {
+    const v = b.dataset.bset;
+    const absent = cells.filter((c) => v !== 'P' && M.isAbsent(st.abs, c.wid, c.d));
+    if (absent.length && !confirm(`${absent.length} kijelölt napon az érintett dolgozó távol van (szabadság, betegség stb.). Ezeket kihagyjam?\n\nOK: kihagyom · Mégse: őket is beosztom`)) {
+      // mégis beosztja
+    } else for (const c of absent) sel.cells.delete(M.lockKey(c.wid, c.d));
+    for (const k of sel.cells) { const [w, d] = k.split('|'); M.setCell(p.schedule.grid, Number(w), d, v); p.locks[k] = v; }
+    p.schedule.manual = (p.schedule.manual || 0) + sel.cells.size;
+    const n = sel.cells.size; sel.cells.clear(); sel.anchor = null;
+    changed({ rerender: rerenderTab }); C.toast(`${n} cella módosítva`);
+  }));
+  bar.querySelector('#bunl').onclick = () => { for (const k of sel.cells) delete p.locks[k]; sel.cells.clear(); changed({ rerender: rerenderTab }); };
+  bar.querySelector('#bclr').onclick = () => { sel.cells.clear(); sel.anchor = null; rerenderTab(); };
+}
+addEventListener('hashchange', () => { if (!location.hash.includes('t=beosztas')) document.querySelector('.ny-selbar')?.remove(); });
+
 function openCell(wid, date) {
   const p = st.plan;
   const w = p.staff.find((s) => s.id === wid);
