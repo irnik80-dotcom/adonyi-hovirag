@@ -32,6 +32,15 @@ export async function handleSummer(request, env, { path, method, json, fail, aud
     return json({ workers, groups });
   }
 
+  // A fő alkalmazás Szabadság menüjének napjai egy időszakra (csak olvasás)
+  if (path === '/api/summer/leaves' && method === 'GET') {
+    const u = new URL(request.url);
+    const from = u.searchParams.get('from') || '', to = u.searchParams.get('to') || '';
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to)) return fail(400, 'Hibás időszak.');
+    const leaves = (await env.DB.prepare('SELECT worker_id, date, note FROM leaves WHERE date BETWEEN ? AND ? ORDER BY worker_id, date').bind(from, to).all()).results;
+    return json({ leaves });
+  }
+
   if (path === '/api/summer/plans' && method === 'GET') {
     const plans = (await env.DB.prepare('SELECT id, name, year, version, created_at, updated_at, length(data) AS size FROM summer_plans ORDER BY year DESC, id DESC').all()).results;
     return json({ plans });

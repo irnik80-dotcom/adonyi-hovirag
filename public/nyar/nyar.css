@@ -142,3 +142,5 @@ b.ny-pi{color:#2E7D22}b.ny-pn{color:#B23A1E}
 @media (max-width:999px){.ny-selbar{bottom:calc(88px + env(safe-area-inset-bottom));padding-bottom:0}#app.nyar{padding-bottom:230px}}
 /* széles képernyőn a menü bal oldalt van: a nyári oldal tartalma mellette kezdődik */
 @media (min-width:1000px){#app.nyar{max-width:none;margin-left:156px;margin-right:24px}}
+.ny-src{font-size:11px;font-weight:700;color:var(--ink-2);background:var(--surface-2);border-radius:8px;padding:4px 8px;white-space:nowrap}
+.field>label.ny-chk{text-transform:none;letter-spacing:0;font-size:14px;font-weight:500;color:var(--ink);margin-bottom:0}

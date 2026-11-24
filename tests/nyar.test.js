@@ -455,3 +455,18 @@ test('ki kivel: „nem szívesen” párok szétválnak, „szívesen” párok 
   const [b] = await generateAlternatives(getHighs, p0, cal, am, { count: 1, timeLimit: TL });
   assert.ok(M.togetherDays(b.grid, am, 100, 101, cal.workdays) > 0);
 });
+
+test('Szabadság menü: a napokból összefüggő szakaszok (hétvégén és ünnepen át), csak a terv dolgozóinak', () => {
+  const plan = makePlan();
+  const { cal } = ctx(plan);
+  const rows = [
+    { worker_id: 100, date: '2027-07-01', note: '' }, { worker_id: 100, date: '2027-07-02', note: 'nyaralás' },
+    { worker_id: 100, date: '2027-07-05', note: '' }, { worker_id: 100, date: '2027-07-07', note: '' },
+    { worker_id: 101, date: '2027-08-19', note: '' }, { worker_id: 101, date: '2027-08-23', note: '' }, // aug. 20. ünnep + hétvége
+    { worker_id: 999, date: '2027-07-01', note: '' },
+  ];
+  const a = M.mainLeavesToAbsences(rows, cal, new Set(plan.staff.map((x) => x.id)));
+  assert.deepEqual(a.map((x) => [x.worker_id, x.from, x.to]), [[100, '2027-07-01', '2027-07-05'], [100, '2027-07-07', '2027-07-07'], [101, '2027-08-19', '2027-08-23']]);
+  assert.ok(a.every((x) => x.source === 'foapp' && x.kind === 'szabadsag'));
+  assert.equal(a[0].note, 'nyaralás');
+});
