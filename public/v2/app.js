@@ -36,8 +36,7 @@ const avSm = (id, name, cls = 'sm') => `<span ${av(id).replace('class="ini ', `c
 const initials = (n) => n.split(/\s+/).filter(Boolean).slice(0, 2).map((p) => p[0].toUpperCase()).join('');
 const gidsOf = (w) => (w.group_ids ? String(w.group_ids).split(',').map(Number) : []);
 const uuid = () => (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`);
-const LEAVE_START_YEAR = 2027;
-const leaveYear = () => Math.max(new Date().getFullYear(), LEAVE_START_YEAR);
+const leaveYear = () => new Date().getFullYear(); // a szabadság mindig a tárgyévre szól
 const ls = { get: (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } }, set: (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* */ } } };
 
 function toast(msg, action) {
@@ -145,7 +144,7 @@ async function viewToday() {
   const t = today(); const y = Number(t.slice(0, 4));
   await loadHolidays([y, y + 1]);
   const tomorrow = nextWorkday(t); const horizon = addDays(t, 14);
-  const ly = y >= LEAVE_START_YEAR ? y : null;
+  const ly = y;
   const [w, cal, lo] = await Promise.all([api('/workers'), calRange(t, horizon), ly ? api(`/leave/overview?year=${ly}`) : Promise.resolve(null)]);
   const active = w.workers.filter((x) => x.active === 1);
   const offToday = absOn(cal, t);
@@ -424,7 +423,7 @@ async function viewPerson(id) {
     <p class="v-date">${esc(groupName || 'nincs munkakör')} ${status}</p>
     <div class="v-tiles">
       <div class="v-tile"><small>Túlóra egyenleg</small><b class="${w.balance < 0 ? 'c-neg' : ''}">${fmt(w.balance)}</b><span>${w.planned ? `tervezett: ${fmt(w.planned, true)}` : w.signed_to ? `aláírva: ${dShort(w.signed_to)}-ig` : 'még nincs aláírva'}</span></div>
-      <div class="v-tile"><small>Szabadság ${ly}</small><b class="${total - lv.leaves.length < 0 ? 'c-neg' : ''}">${total - lv.leaves.length} nap</b><span>keret ${total} · kivett ${taken}${planned ? ` · tervezett ${planned}` : ''}</span></div>
+      <div class="v-tile"><small>Szabadság ${ly}</small><b class="${total - lv.leaves.length < 0 ? 'c-neg' : ''}">${total - lv.leaves.length} nap</b><span>${lv.budget.carry ? `nyitó ${lv.budget.carry} + ` : ''}éves ${lv.budget.entitlement} · kivett ${taken}${planned ? ` · tervezett ${planned}` : ''}</span></div>
     </div>
     ${w.active === 1 ? `<div class="v-actions">${['credit', 'use', 'leave'].map((k) => `<a class="${KIND[k].c}" href="#/uj?w=${id}&k=${k}">${KIND[k].s}</a>`).join('')}</div>` : ''}
     ${future.length || futLeave.length ? `<section class="v-card"><div class="v-h"><b>Közelgő távollét</b></div><div class="v-rows">
@@ -437,7 +436,7 @@ async function viewPerson(id) {
         const fut = r.items.filter((l) => l.date > t); const plan = fut.filter((l) => !l.taken); const man = fut.filter((l) => l.taken);
         const tk = !plan.length;
         return `<div class="v-row v-lvr"><span class="dot k-leave${tk ? '' : ' plan'}"></span><div class="v-lvm"><b>${esc(rangeText(r))}</b><small>${r.n} nap · ${plan.length && plan.length < r.n ? 'részben kivett' : tk ? (man.length ? 'kivett (kézzel jelölve)' : 'kivett') : 'tervezett'}${r.note ? ` · ${esc(r.note)}` : ''}</small></div>
-          <div class="v-lva">${plan.length ? `<button type="button" class="chipbtn" data-tk="${i}" data-v="1">Kivett</button>` : man.length ? `<button type="button" class="chipbtn" data-tk="${i}" data-v="0">Tervezett</button>` : ''}<button type="button" class="chipbtn del" data-del="${i}">Törlés</button></div></div>`; }).join('')}</div>` : '<p class="v-empty">Ebben az évben még nincs szabadság.</p>'}</details>
+          <div class="v-lva">${plan.length && r.from.slice(0, 4) <= t.slice(0, 4) ? `<button type="button" class="chipbtn" data-tk="${i}" data-v="1">Kivett</button>` : man.length ? `<button type="button" class="chipbtn" data-tk="${i}" data-v="0">Tervezett</button>` : ''}<button type="button" class="chipbtn del" data-del="${i}">Törlés</button></div></div>`; }).join('')}</div>` : '<p class="v-empty">Ebben az évben még nincs szabadság.</p>'}</details>
     <details class="v-more v-card"><summary>Szerkesztés és egyebek</summary>
       <div class="v-links">
         <a href="/#/dolgozo/${id}">Tételek javítása, sztornó, aláírás</a>

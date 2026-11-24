@@ -1123,7 +1123,7 @@ async function viewAudit() {
       case 'leave.add': return `Szabadság rögzítve: ${esc(name(d.workerId))} · ${d.count} nap (${dotted(d.from)} – ${dotted(d.to)})`;
       case 'leave.taken': return `Szabadság ${d.taken ? 'kivettre' : 'tervezettre'} állítva: ${esc(name(d.workerId))} · ${d.count} nap (${dotted(d.from)} – ${dotted(d.to)})`;
       case 'leave.delete': return `Szabadság törölve: ${esc(name(d.workerId))} · ${d.count} nap`;
-      case 'leave.budget': return `Szabadság-keret: ${esc(name(d.workerId))} · ${d.year}: ${d.entitlement} nap${d.carry ? ` + ${d.carry} átvitt` : ''}`;
+      case 'leave.budget': return `Szabadság-keret: ${esc(name(d.workerId))} · ${d.year}: ${d.carry ? `nyitó ${d.carry} + ` : ''}éves ${d.entitlement} nap`;
       case 'holiday.set': return `Speciális nap: ${dotted(d.date)} (${d.kind === 'off' ? 'szabadnap' : 'ledolgozandó munkanap'})`;
       case 'holiday.delete': return `Speciális nap törölve: ${dotted(d.date)}`;
       case 'summer.create': return `Nyári beosztás terv létrehozva: ${esc(d.name)}`;
@@ -1177,8 +1177,8 @@ async function viewAudit() {
 
 /* ---------- szabadságok ---------- */
 
-const LEAVE_START_YEAR = 2027;
-const leaveYearDefault = () => Math.max(new Date().getFullYear(), LEAVE_START_YEAR);
+// A szabadság mindig a tárgyévre szól: az aktuális naptári év az alapértelmezett
+const leaveYearDefault = () => new Date().getFullYear();
 const nextWorkday = (isoDate) => { const d = new Date(isoDate + 'T12:00:00'); do { d.setDate(d.getDate() + 1); } while (isOffDay(iso(d))); return iso(d); };
 // Összefüggő munkanapok egy sorozatba (a hétvége és az ünnepnap nem szakítja meg)
 function leaveRanges(list) {
@@ -1286,7 +1286,7 @@ async function viewLeave(q) {
       const over = total > 0 && w.remaining < 0;
       return `<a class="item" href="#/szabadsag/${w.worker_id}?y=${year}"><div class="h"><span>${esc(w.name)}</span><em class="${over ? 'neg' : ''}">${total ? `maradék ${nap(w.remaining)}` : 'nincs keret'}</em></div>
         <div class="track"><s class="${over ? 'neg' : ''}" style="width:${usedPct}%"></s><s class="pl" style="left:${usedPct}%;width:${planPct}%"></s></div>
-        <div class="sub"><span>${total ? `keret ${w.entitlement}${w.carry ? ` + átvitt ${w.carry}` : ''}` : 'a keret nincs megadva'}</span><span>kivett ${w.used}${w.planned ? ` · tervezett ${w.planned}` : ''}</span></div></a>`;
+        <div class="sub"><span>${total ? `${w.carry ? `nyitó ${w.carry} + ` : ''}éves ${w.entitlement} = ${total} nap` : 'a keret nincs megadva'}</span><span>kivett ${w.used}${w.planned ? ` · tervezett ${w.planned}` : ''}</span></div></a>`;
     }).join('') : '<p class="empty">Nincs találat.</p>';
   };
   document.getElementById('q').oninput = draw;
@@ -1307,19 +1307,20 @@ async function viewLeaveWorker(id, q) {
       <div class="pills"><span class="pill">keret ${total} nap</span><span class="pill">kivett ${pastN}</span>${used - pastN ? `<span class="pill">tervezett ${used - pastN}</span>` : ''}</div></div>
     ${yearNav(year, `/szabadsag/${id}`)}
     <a class="btn" href="#/szabadsag/uj?w=${id}&y=${year}" style="text-decoration:none;margin-top:14px">+ Szabadság rögzítése</a>
-    <form id="bf" class="yearcard"><span class="label">Éves keret (nap)</span>
-      <div class="row"><div style="flex:1;min-width:0"><label class="label" for="be">Alapkeret</label><input class="input" id="be" type="number" inputmode="numeric" min="0" max="366" value="${budget.entitlement}"></div>
-        <div style="flex:1;min-width:0"><label class="label" for="bc">Átvitt az előző évből</label><input class="input" id="bc" type="number" inputmode="numeric" min="-366" max="366" value="${budget.carry}"></div></div>
-      ${prevRem !== null && prevRem > 0 && !budget.carry ? `<button type="button" class="btn ghost small mt-8" id="carry">Átvitel az előző évből (${prevRem} nap)</button>` : ''}
+    <form id="bf" class="yearcard"><span class="label">${year}. évi keret (nap)</span>
+      <div class="row"><div style="flex:1;min-width:0"><label class="label" for="bc">Nyitó egyenleg</label><input class="input" id="bc" type="number" inputmode="numeric" min="-366" max="366" value="${budget.carry}"></div>
+        <div style="flex:1;min-width:0"><label class="label" for="be">Éves szabadság</label><input class="input" id="be" type="number" inputmode="numeric" min="0" max="366" value="${budget.entitlement}"></div></div>
+      <p class="tabs-note mt-6">Éves szabadság: az alapszabadság és az egyéb jogcímen kapott napok együtt. Nyitó egyenleg: az év elején meglévő napok (lehet mínusz is).</p>
+      ${prevRem !== null && prevRem > 0 && !budget.carry ? `<button type="button" class="btn ghost small mt-8" id="carry">Nyitó egyenleg = előző évi maradék (${prevRem} nap)</button>` : ''}
       <button class="btn small mt-10" type="submit">Keret mentése</button></form>
     <div class="field"><span class="label">Naptár</span><div id="lcal"></div></div>
     <div class="field"><span class="label">Szabadságok</span>
       <p class="tabs-note mt-0">A tervezett szabadság a napján magától kivett lesz. Előtte is átállíthatod kézzel a „Kivettre állít” gombbal.</p>
       ${ranges.length ? `<div class="entries">${ranges.map((r) => {
         const fut = r.items.filter((l) => l.date > t);
-        const plan = fut.filter((l) => !l.taken), manual = fut.filter((l) => l.taken);
+        const plan = fut.filter((l) => !l.taken), manual = fut.filter((l) => l.taken); const nextYear = r.from.slice(0, 4) > t.slice(0, 4);
         const st = plan.length ? (plan.length < r.items.length ? 'részben kivett' : 'tervezett') : manual.length ? 'kivett (kézzel jelölve)' : 'kivett';
-        const btn = plan.length ? `<button class="undo" data-tk="${plan.map((l) => l.id).join(',')}" data-v="1">Kivettre állít</button>`
+        const btn = plan.length && !nextYear ? `<button class="undo" data-tk="${plan.map((l) => l.id).join(',')}" data-v="1">Kivettre állít</button>`
           : manual.length ? `<button class="undo" data-tk="${manual.map((l) => l.id).join(',')}" data-v="0">Vissza tervezettre</button>` : '';
         return `<div class="entry lv-item"><div class="bal ${plan.length ? 'zero' : 'pos'}">${nap(r.days)}</div>
         <div class="meta"><b>${rangeText(r)}</b><span>${st}${r.note ? ` · ${esc(r.note)}` : ''}</span></div><div class="acts">${btn}<button class="undo" data-delr="${r.ids.join(',')}">Törlés</button></div></div>`; }).join('')}</div>` : '<p class="tabs-note m-0">Ebben az évben még nincs rögzített szabadság.</p>'}</div>${nav('leave')}`;
@@ -1475,7 +1476,7 @@ async function viewLeaveReport(q) {
     const foot = `<tr><td>Összesen</td><td class="r">${sum('total')}</td>${month ? `<td class="r">${sum('used_period')}</td><td class="r">${sum('used_ytd')}</td>` : `${MS.map((_, i) => `<td class="r">${r.rows.reduce((a, x) => a + x.by_month[i], 0) || '–'}</td>`).join('')}<td class="r">${sum('used_ytd')}</td>`}<td class="r">${sum('remaining')}</td></tr>`;
     body = `<section class="sheet">${head}<h3>Szabadság-kimutatás</h3>
       <div class="facts"><div><small>Időszak</small><b>${period}</b></div><div><small>Kiknek</small><b>${esc(r.scope.name)}</b></div></div>
-      <p class="unit">Az értékek napokban szerepelnek. A keret az alapkeretet és az átvitt napokat tartalmazza.</p>
+      <p class="unit">Az értékek napokban szerepelnek. A keret a nyitó egyenleg és az éves szabadság (alap + egyéb jogcímen kapott) összege.</p>
       <div class="tw"><table class="sum leave"><thead><tr><th>Dolgozó</th>${cols}</tr></thead><tbody>${rows || '<tr><td colspan="6" class="none">Nincs dolgozó.</td></tr>'}</tbody><tfoot>${foot}</tfoot></table></div>
       <div class="foot"><span>Maradék: keret mínusz a ${month ? 'hónap végéig' : 'évben'} kivett napok.</span><span></span></div></section>`;
   } else {
@@ -1485,7 +1486,7 @@ async function viewLeaveReport(q) {
       const monthly = month ? '' : `<div class="tw"><table class="sum leave mt-12"><thead><tr>${MS.map((m) => `<th class="r">${m}</th>`).join('')}</tr></thead><tbody><tr>${x.by_month.map((n) => `<td class="r">${n || '–'}</td>`).join('')}</tr></tbody></table></div>`;
       return `<section class="sheet">${head}<h3>Szabadság-kimutatás</h3>
         <div class="facts"><div><small>Dolgozó</small><b>${esc(x.worker.name)}</b></div><div><small>Időszak</small><b>${period}</b></div>
-          <div><small>Éves keret</small><b>${x.entitlement}${x.carry ? ` + ${x.carry} átvitt` : ''} = ${x.total} nap</b></div><div><small>Maradék${month ? ' (hónap végén)' : ''}</small><b>${x.remaining} nap</b></div></div>
+          <div><small>Keret</small><b>${x.carry ? `nyitó ${x.carry} + ` : ''}éves ${x.entitlement} = ${x.total} nap</b></div><div><small>Maradék${month ? ' (hónap végén)' : ''}</small><b>${x.remaining} nap</b></div></div>
         <table><thead><tr><th>Időszak</th><th class="r">Napok</th></tr></thead><tbody>${trs || '<tr><td colspan="2" class="none">Az időszakban nem volt szabadság.</td></tr>'}</tbody></table>
         ${monthly}
         <div class="total"><span>${month ? 'Kivett a hónapban' : 'Kivett az évben'}</span><b>${x.used_period} nap</b></div>
