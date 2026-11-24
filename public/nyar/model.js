@@ -153,6 +153,7 @@ export function normalizePlan(p) {
   for (const k of ['colors', 'abbr', 'report']) p.settings[k] = { ...DEFAULT_SETTINGS[k], ...(p.settings[k] || {}) };
   p.mode ||= 'mindenki';
   p.children ||= {};
+  p.prefs ||= {};
   p.closed ||= []; p.absences ||= []; p.alternatives ||= []; p.approvals ||= {}; p.staff ||= []; p.roles ||= [];
   for (const r of p.roles) {
     r.min ||= { DE: 0, DU: 0 }; r.opt ||= { ...r.min };
@@ -415,7 +416,11 @@ export function metrics(plan, cal, absMap, grid) {
     const opt = role.opt?.[sh] ?? role.min[sh];
     if (n > opt) { surplusCells++; surplusPersons += n - opt; if (plan.approvals?.[approvalKey(d, sh, role.group_id)]) approvedSurplus++; }
   }
+  const pr = pairReport(plan, cal, absMap, grid);
+  const yes = pr.filter((x) => x.score > 0), no = pr.filter((x) => x.score < 0);
   return {
+    pairYes: yes.length ? Math.round((100 * yes.reduce((t, x) => t + x.together, 0)) / Math.max(1, yes.reduce((t, x) => t + x.both, 0))) : null,
+    pairNoDays: no.length ? no.reduce((t, x) => t + x.together, 0) : null,
     fullBlockRate: blocksWorked ? Math.round((1000 * blocksFull) / blocksWorked) / 10 : 100,
     blocksFull, blocksWorked, shiftChanges, isolated, surplusCells, surplusPersons, approvedSurplus,
     maxSpread: perRole.length ? Math.max(...perRole.map((r) => r.spread)) : 0,
@@ -556,7 +561,7 @@ export function parseCSV(text) {
 // A generálás bemeneteinek ujjlenyomata: ha változik, a korábbi változatok elavultak
 // (a kézi rögzítések nincsenek benne: azok a kiválasztott beosztásban már szerepelnek)
 export function fingerprint(plan, holidays = []) {
-  const s = JSON.stringify([plan.children || {}, plan.settings?.groupMax, plan.period, plan.closed, plan.roles, plan.staff.map((x) => [x.id, x.group_id, x.include]),
+  const s = JSON.stringify([plan.prefs || {}, plan.children || {}, plan.settings?.groupMax, plan.period, plan.closed, plan.roles, plan.staff.map((x) => [x.id, x.group_id, x.include]),
     plan.absences.map((a) => [a.worker_id, a.from, a.to]), holidays.filter((h) => h.date >= plan.period.from && h.date <= plan.period.to)]);
   let h = 2166136261;
   for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
@@ -574,4 +579,37 @@ export function gridDiff(a, b) {
   let diff = 0;
   for (const k of keys) { const [w, d] = k.split('|'); if ((a?.[w]?.[d] || null) !== (b?.[w]?.[d] || null)) diff++; }
   return Math.round((100 * diff) / keys.size);
+}
+
+// ---------- „ki kivel dolgozik szívesen” ----------
+// plan.prefs: { 'a|b': 'I' | 'N' } – a sor dolgozója (a) szívesen / nem szívesen van egy műszakban b-vel; hiányzó = semleges.
+export function pairList(plan) {
+  const val = (x) => (x === 'I' ? 1 : x === 'N' ? -1 : 0);
+  const out = new Map();
+  for (const [k, v] of Object.entries(plan.prefs || {})) {
+    const [a, b] = k.split('|').map(Number);
+    if (a === b || !val(v)) continue;
+    const key = a < b ? `${a}|${b}` : `${b}|${a}`;
+    out.set(key, (out.get(key) || 0) + val(v));
+  }
+  return [...out].filter(([, s]) => s).map(([k, score]) => { const [a, b] = k.split('|').map(Number); return { a, b, score }; });
+}
+
+// Együtt töltött napok egy műszakban (egy műszakos „D” dolgozó mindkét műszakkal együtt van)
+export function togetherDays(grid, absMap, a, b, workdays) {
+  let n = 0;
+  for (const d of workdays) {
+    const x = grid?.[a]?.[d], y = grid?.[b]?.[d];
+    if (!x || !y || isAbsent(absMap, a, d) || isAbsent(absMap, b, d)) continue;
+    if (x === y || x === 'D' || y === 'D') n++;
+  }
+  return n;
+}
+export function pairReport(plan, cal, absMap, grid) {
+  const name = new Map(plan.staff.map((s) => [s.id, s.name]));
+  const inc = new Set(plan.staff.filter((s) => s.include).map((s) => s.id));
+  return pairList(plan).filter((p) => inc.has(p.a) && inc.has(p.b)).map((p) => {
+    const both = cal.workdays.filter((d) => !isAbsent(absMap, p.a, d) && !isAbsent(absMap, p.b, d)).length;
+    return { ...p, aName: name.get(p.a), bName: name.get(p.b), together: togetherDays(grid, absMap, p.a, p.b, cal.workdays), both };
+  });
 }

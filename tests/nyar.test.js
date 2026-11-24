@@ -433,3 +433,25 @@ test('gyereklétszám: csoportszám (50 → 2, 52 → 3) és a belőle adódó n
   assert.equal(c.length, 5);
   assert.equal(c[0].groups, 11);
 });
+
+test('ki kivel: „nem szívesen” párok szétválnak, „szívesen” párok együtt (munkakörök között is)', async () => {
+  const plan = makePlan({ mode: 'mindenki', sub: true });
+  plan.roles[0].opt = { DE: 3, DU: 2, D: 0 };
+  plan.prefs = { '100|101': 'N', '101|100': 'N', '102|103': 'I', '103|102': 'I', '104|115': 'I', '115|104': 'I', '105|116': 'N' };
+  const pairs = M.pairList(plan);
+  assert.deepEqual(pairs.map((x) => [x.a, x.b, x.score]).sort(), [[100, 101, -2], [102, 103, 2], [104, 115, 2], [105, 116, -1]].sort());
+  const { cal, abs: am } = ctx(plan);
+  const [a] = await generateAlternatives(getHighs, plan, cal, am, { count: 1, timeLimit: TL });
+  const v = M.validate(plan, cal, am, { grid: a.grid });
+  assert.equal(v.errors.length, 0);
+  const rep = Object.fromEntries(M.pairReport(plan, cal, am, a.grid).map((x) => [`${x.a}|${x.b}`, x]));
+  assert.equal(rep['100|101'].together, 0, 'nem szívesen: soha egy műszakban');
+  assert.ok(rep['102|103'].together >= rep['102|103'].both * 0.8, `szívesen: ${rep['102|103'].together}/${rep['102|103'].both}`);
+  assert.ok(rep['104|115'].together >= rep['104|115'].both * 0.8, `óvónő–dajka: ${rep['104|115'].together}/${rep['104|115'].both}`);
+  assert.equal(rep['105|116'].together, 0);
+  assert.equal(v.metrics.pairNoDays, 0);
+  // szinte csak a preferencia miatt: preferencia nélkül nem így alakulna
+  const p0 = structuredClone(plan); p0.prefs = {};
+  const [b] = await generateAlternatives(getHighs, p0, cal, am, { count: 1, timeLimit: TL });
+  assert.ok(M.togetherDays(b.grid, am, 100, 101, cal.workdays) > 0);
+});

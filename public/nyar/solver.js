@@ -14,20 +14,22 @@
 //   - egy héten belüli több, széttört szakasz                      W.run
 //   - tervezett létszám feletti többlet                           W.surplus
 
-import { shiftsOf, roleProblem, lockKey } from './model.js';
+import { shiftsOf, roleProblem, lockKey, pairList } from './model.js';
+export { pairList };
 
 export const PROFILES = {
   ajanlott: { label: 'Ajánlott', desc: 'A fontossági sorrend szerint: ötnapos blokkok, azonos műszak a héten, majd a lehető legegyenletesebb terhelés, fölösleges többlet nélkül.', descAll: 'Pihenőnap nélkül: a dolgozó egész héten ugyanabban a műszakban, a délelőttök és délutánok aránya dolgozónként kiegyenlített.',
-    W: { opt: 400, block: 60, shift: 25, fair: 6, fairMax: 14, run: 12, surplus: 14 } },
+    W: { opt: 400, block: 60, shift: 25, fair: 6, fairMax: 14, run: 12, surplus: 14, pairYes: 6, pairNo: 12 } },
   blokk: { label: 'Erős blokkok', labelAll: 'Heti azonos műszak', desc: 'Mindennél fontosabb a teljes hét és az azonos műszak; a terhelés kicsit kevésbé egyenletes.', descAll: 'Pihenőnap nélkül: a heti azonos műszak mindennél fontosabb; a délelőtt–délután arány dolgozónként kevésbé kiegyenlített.',
-    W: { opt: 400, block: 150, shift: 70, fair: 2, fairMax: 5, run: 30, surplus: 14 } },
+    W: { opt: 400, block: 150, shift: 70, fair: 2, fairMax: 5, run: 30, surplus: 14, pairYes: 3, pairNo: 6 } },
   egyenletes: { label: 'Egyenletes terhelés', labelAll: 'Egyenletes DE/DU arány', desc: 'A dolgozók közötti napszám-eltérést csökkenti; ehhez rövidebb blokkot vagy létszámtöbbletet is elfogad.', descAll: 'Pihenőnap nélkül: mindenki közel ugyanannyi délelőttöt és délutánt kap, ehhez ritkán héten belüli műszakváltást is elfogad.',
-    W: { opt: 400, block: 35, shift: 15, fair: 20, fairMax: 50, run: 8, surplus: 4 } },
+    W: { opt: 400, block: 35, shift: 15, fair: 20, fairMax: 50, run: 8, surplus: 4, pairYes: 6, pairNo: 12 } },
 };
 export const PROFILE_ORDER = ['ajanlott', 'blokk', 'egyenletes'];
 
 // avoid: korábbi megoldások rácsa ({wid:{date:shift}}); minDiff: a korábbi munkanapok legalább ekkora hányada legyen más
-export function buildModel(pr, W, avoid = [], minDiff = 0) {
+// Egy munkakör modellrészei (célfüggvénytagok, feltételek, változók)
+export function buildParts(pr, W, avoid = [], minDiff = 0) {
   const { workers, avail, target, workdays, weeks, role, locks, allWork, share } = pr;
   const SH = shiftsOf(role);
   const obj = [];         // [coef, var]
@@ -140,21 +142,94 @@ export function buildModel(pr, W, avoid = [], minDiff = 0) {
     if (n) row(`div_${ai}`, t, '<=', n - Math.max(1, Math.ceil(minDiff * n)));
   });
 
+  return { obj, rows, bins, bounds, X, dIdx, fmax: workers.length > 0 && obj.some(([, v]) => v === 'fmax') };
+}
+
+const term = (c, v) => (c === 1 ? `+ ${v}` : c === -1 ? `- ${v}` : `${c >= 0 ? '+' : '-'} ${Math.abs(c)} ${v}`);
+const NAME = /\b([a-z]+[0-9]?_[0-9A-Za-z_]+|fmax)\b/g;
+// Több munkakör közös modelljéhez: a nevek munkakörönkénti előtagot kapnak
+function withPrefix(parts, P) {
+  if (!P) return parts;
+  const ren = (t) => t.replace(NAME, `${P}$1`);
+  return { ...parts, obj: parts.obj.map(([c, v]) => [c, ren(v)]), rows: parts.rows.map(ren), bins: parts.bins.map(ren), bounds: parts.bounds.map(ren),
+    X: new Map([...parts.X].map(([k, v]) => [k, ren(v)])), fmaxName: ren('fmax') };
+}
+function assemble(list, extra = { obj: [], rows: [], bins: [] }) {
   const wrap = (arr) => { const out = []; for (let i = 0; i < arr.length; i += 12) out.push(arr.slice(i, i + 12).join(' ')); return out.join('\n   '); };
+  const obj = [...list.flatMap((p) => p.obj), ...extra.obj];
   const objTerms = obj.map(([c, v]) => term(c, v));
-  const lp = [
+  const rows = [...list.flatMap((p) => p.rows), ...extra.rows];
+  const bins = [...list.flatMap((p) => p.bins), ...extra.bins];
+  return [
     'Minimize',
     ` obj: ${objTerms.length ? wrap(objTerms) : '0 fmax'}`,
     'Subject To',
     ...rows.map((r) => { const m = r.match(/^( \w+: )(.*) (>=|<=|=) (-?[\d.]+)$/); if (!m) return r; return `${m[1]}${wrap(m[2].split(/ (?=[+-] )/))} ${m[3]} ${m[4]}`; }),
     'Bounds',
-    ...bounds,
-    ...(workers.length && obj.some(([, v]) => v === 'fmax') ? [' fmax >= 0'] : []),
+    ...list.flatMap((p) => p.bounds),
+    ...list.filter((p) => p.fmax).map((p) => ` ${p.fmaxName || 'fmax'} >= 0`),
     'Binary',
     ...(bins.length ? [wrap(bins)] : []),
     'End',
   ].join('\n');
-  return { lp, X, dIdx };
+}
+
+export function buildModel(pr, W, avoid = [], minDiff = 0) {
+  const parts = buildParts(pr, W, avoid, minDiff);
+  return { lp: assemble([parts]), X: parts.X, dIdx: parts.dIdx };
+}
+
+// ---------- „ki kivel dolgozik szívesen” preferenciák ----------
+// pairs: [{ a, b, score }] – score > 0: szívesen egy műszakban, < 0: nem szívesen (a két irány összege)
+// Közös modell: a munkakörök (a párjaikkal összekötve) együtt; naponta jutalom / büntetés, ha egy műszakban vannak.
+export function buildJointModel(prs, W, avoids = [], minDiff = 0, pairs = []) {
+  const parts = prs.map((pr, k) => withPrefix(buildParts(pr, W, avoids[k] || [], minDiff), prs.length > 1 ? `r${k}_` : ''));
+  const where = new Map(); // worker id -> [k, wi]
+  prs.forEach((pr, k) => pr.workers.forEach((w, wi) => where.set(w.id, [k, wi])));
+  const extra = { obj: [], rows: [], bins: [] };
+  let n = 0;
+  for (const { a, b, score } of pairs) {
+    if (!score || !where.has(a) || !where.has(b)) continue;
+    const [ka, wa] = where.get(a), [kb, wb] = where.get(b);
+    const A = prs[ka], Bp = prs[kb];
+    const xs = (k, wi, di, s) => parts[k].X.get(`${wi}|${di}|${s}`);
+    A.workdays.forEach((d) => {
+      const dia = parts[ka].dIdx.get(d), dib = parts[kb].dIdx.get(d);
+      if (dia == null || dib == null) return;
+      // közös műszakok: egy műszakos (D) dolgozó egész nap bent van, mindkét műszakkal „együtt” van
+      const shA = shiftsOf(A.role), shB = shiftsOf(Bp.role);
+      const combos = [];
+      if (shA.length > 1 && shB.length > 1) for (const s of ['DE', 'DU']) combos.push([[xs(ka, wa, dia, s)], [xs(kb, wb, dib, s)]]);
+      else combos.push([shA.map((s) => xs(ka, wa, dia, s)), shB.map((s) => xs(kb, wb, dib, s))]);
+      for (const [va, vb] of combos) {
+        const ta = va.filter(Boolean), tb = vb.filter(Boolean);
+        if (!ta.length || !tb.length) continue;
+        const y = `pp_${n++}`;
+        if (score > 0) {
+          // jutalom: y ≤ A jelen, y ≤ B jelen (y csak akkor lehet 1, ha együtt vannak)
+          extra.obj.push([-W.pairYes * score, y]);
+          extra.rows.push(` py1_${n}: + ${y} ${ta.map((v) => `- ${v}`).join(' ')} <= 0`, ` py2_${n}: + ${y} ${tb.map((v) => `- ${v}`).join(' ')} <= 0`);
+          extra.bins.push(y);
+        } else {
+          // büntetés: y ≥ A + B − 1
+          extra.obj.push([W.pairNo * -score, y]);
+          extra.rows.push(` pn_${n}: + ${y} ${ta.map((v) => `- ${v}`).join(' ')} ${tb.map((v) => `- ${v}`).join(' ')} >= -1`);
+        }
+      }
+    });
+  }
+  return { lp: assemble(parts, extra), parts };
+}
+
+
+// Munkakör-csoportok: azok a munkakörök, amelyek között van preferencia, együtt oldódnak meg
+export function roleComponents(prs, pairs) {
+  const parent = prs.map((_, i) => i);
+  const find = (i) => (parent[i] === i ? i : (parent[i] = find(parent[i])));
+  const roleOf = new Map(); prs.forEach((pr, k) => pr.workers.forEach((w) => roleOf.set(w.id, k)));
+  for (const { a, b } of pairs) { const ka = roleOf.get(a), kb = roleOf.get(b); if (ka != null && kb != null) parent[find(ka)] = find(kb); }
+  const groups = new Map(); prs.forEach((_, k) => { const r = find(k); if (!groups.has(r)) groups.set(r, []); groups.get(r).push(k); });
+  return [...groups.values()];
 }
 
 export function extractGrid(pr, X, cols) {
@@ -224,10 +299,56 @@ export function combine(profiles, perRole) {
 // Egyszálú változat (Node-teszt, illetve tartalék, ha a böngésző nem tud modul-workert)
 export async function generateAlternatives(getHighs, plan, cal, absMap, { count = 3, locks = {}, onProgress = () => {}, timeLimit = 10 } = {}) {
   const profiles = profileList(count);
-  const perRole = [];
-  for (const role of plan.roles) {
-    const pr = roleProblem(plan, cal, absMap, role, locks);
-    perRole.push(await generateRoleAlternatives(getHighs, pr, profiles, { timeLimit, onProgress: (ai) => onProgress(`${ai + 1}. változat · ${role.label}`) }));
+  const prs = plan.roles.map((role) => roleProblem(plan, cal, absMap, role, locks));
+  const pairs = pairList(plan);
+  const perGroup = [];
+  for (const comp of roleComponents(prs, pairs)) {
+    const sub = comp.map((k) => prs[k]);
+    const ids = new Set(sub.flatMap((p) => p.workers.map((w) => w.id)));
+    const pp = pairs.filter((x) => ids.has(x.a) && ids.has(x.b));
+    perGroup.push(await generateGroupAlternatives(getHighs, sub, pp, profiles, { timeLimit: comp.length > 1 ? timeLimit * 1.5 : timeLimit, onProgress: (ai) => onProgress(`${ai + 1}. változat · ${sub.map((p) => p.role.label).join(' + ')}`) }));
   }
-  return combine(profiles, perRole);
+  return combine(profiles, perGroup);
+}
+
+// Munkakör-csoport közös megoldása (preferenciákkal). Visszaad: { status, grid }
+export function solveJoint(highs, prs, W, { avoids = [], minDiff = 0, timeLimit = 15, gap = 0.01, pairs = [] } = {}) {
+  if (prs.length === 1 && !pairs.length) return solveRole(highs, prs[0], W, { avoid: avoids[0] || [], minDiff, timeLimit, gap });
+  const { lp, parts } = buildJointModel(prs, W, avoids, minDiff, pairs);
+  let res;
+  try { res = highs.solve(lp, { output_flag: false, time_limit: timeLimit, mip_rel_gap: gap, presolve: 'on' }); }
+  catch (e) { return { status: 'error', error: String(e?.message || e) }; }
+  const st = res.Status;
+  if (st === 'Infeasible' || st === 'Primal infeasible') return { status: 'infeasible' };
+  const hasSol = res.Columns && Object.values(res.Columns).some((c) => typeof c.Primal === 'number');
+  if (st !== 'Optimal' && !hasSol) return { status: st === 'Time limit reached' ? 'timeout' : 'error', error: st };
+  const grid = {};
+  prs.forEach((pr, k) => Object.assign(grid, extractGrid(pr, parts[k].X, res.Columns)));
+  return { status: st === 'Optimal' ? 'ok' : 'timeout_ok', grid, objective: res.ObjectiveValue };
+}
+
+// Egy munkakör-csoport összes változata (a generateRoleAlternatives közös változata)
+export async function generateGroupAlternatives(getHighs, prs, pairs, profiles, { onProgress = () => {}, timeLimit = 15 } = {}) {
+  const out = [];
+  const label = prs.map((p) => p.role.label).join(' + ');
+  const ids = prs.map((pr) => new Set(pr.workers.map((w) => String(w.id))));
+  const split = (g) => ids.map((set) => Object.fromEntries(Object.entries(g).filter(([w]) => set.has(String(w)))));
+  for (let ai = 0; ai < profiles.length; ai++) {
+    const W = PROFILES[profiles[ai]].W;
+    onProgress(ai);
+    const prev = out.filter((a) => a.grid).map((a) => split(a.grid));
+    const avoids = prs.map((_, k) => prev.map((p) => p[k]));
+    const notes = [];
+    let r = null;
+    for (const md of ai ? [0.2, 0.1, 0.04, 0] : [0]) {
+      let highs = await getHighs();
+      r = solveJoint(highs, prs, W, { avoids, minDiff: md, timeLimit, pairs });
+      if (r.status === 'error') { highs = await getHighs(true); r = solveJoint(highs, prs, W, { avoids, minDiff: md, timeLimit, pairs }); }
+      if (r.grid) { if (ai && md < 0.2) notes.push(md ? `${label}: csak ${Math.round(md * 100)}%-os eltérés volt elérhető az előző változat(ok)tól` : `${label}: nem találtam az előzőtől eltérő megoldást`); break; }
+    }
+    if (!r?.grid) { out.push({ grid: null, notes: [`${label}: nem sikerült megoldást találni (${r?.status}${r?.error ? ': ' + r.error : ''})`] }); continue; }
+    if (r.status === 'timeout_ok') notes.push(`${label}: az időkorlát miatt jó, de nem bizonyítottan a legjobb megoldás`);
+    out.push({ grid: r.grid, notes });
+  }
+  return out;
 }
