@@ -374,3 +374,84 @@ test('import: betegállomány és plusz órás szabadnap típus', () => {
     [100, '2027.07.05', '2027.07.05', 'betegállomány'], [101, '2027.07.06', '2027.07.06', 'plusz óra'], [102, '2027.07.07', '2027.07.07', 'Szabadnap plusz órából'], [103, '2027.07.08', '2027.07.08', 'szabadság'], [104, '2027.07.09', '2027.07.09', 'továbbképzés']], plan);
   assert.deepEqual(r.records.map((x) => x.kind), ['beteg', 'pluszora', 'pluszora', 'szabadsag', 'egyeb']);
 });
+
+test('helyettesítés: az asszisztens beszámít az óvónői létszámba, de műszakonként 1 óvónő kell', async () => {
+  const base = M.newPlan(2027, GROUPS, makeWorkers());
+  assert.equal(base.roles[0].subBy, 2); assert.equal(base.roles[0].minOwn, 1); assert.equal(base.roles[2].subBy, null);
+  // 11 pedagógusból 9 szabadságon egy héten → 2 óvónő marad a 2+1-es igényre; asszisztensek bent vannak
+  const plan = makePlan({ mode: 'mindenki', sub: true });
+  for (const id of [100, 101, 102, 103, 104, 105, 106, 107, 108]) plan.absences.push(abs(id, '2027-07-12', '2027-07-16'));
+  let { cal, abs: am } = ctx(plan);
+  assert.equal(M.precheck(plan, cal, am).length, 0, 'asszisztensekkel kijön');
+  const [a] = await generateAlternatives(getHighs, plan, cal, am, { count: 1, timeLimit: TL });
+  const v = M.validate(plan, cal, am, { grid: a.grid });
+  assert.equal(v.errors.length, 0, JSON.stringify(v.errors.slice(0, 2)));
+  assert.equal(v.counts['2027-07-12|DE|1'] + v.counts['2027-07-12|DU|1'], 2);
+  assert.ok(v.counts['2027-07-12|DE|1'] >= 1 && v.counts['2027-07-12|DU|1'] >= 1, 'mindkét műszakban van óvónő');
+  assert.ok(v.counts['cov|2027-07-12|DE|1'] >= 3);
+  // ha csak 1 óvónő marad: az egyik műszakban nincs óvónő → ütközés, akkor is, ha asszisztens van bőven
+  plan.absences.push(abs(109, '2027-07-12', '2027-07-16'));
+  ({ cal, abs: am } = ctx(plan));
+  const c = M.precheck(plan, cal, am).filter((x) => x.type === 'shortage' && x.group_id === 1);
+  assert.equal(c.length, 5);
+  assert.deepEqual(c[0].required, { DE: 1, DU: 1 });
+  // kézi beosztás: 0 óvónő délután, asszisztens van → hiba „nincs bent óvónő”
+  const g = structuredClone(a.grid);
+  for (const id of [109, 110]) M.setCell(g, id, '2027-07-12', 'DE');
+  const v2 = M.validate(makePlanWithAbs(plan, 100), cal, am, { grid: g });
+  assert.ok(v2.errors.some((e) => e.type === 'shortage' && e.shift === 'DU' && e.group_id === 1 && /nincs bent/.test(e.msg)));
+});
+function makePlanWithAbs(plan, _) { const p = structuredClone(plan); p.absences = p.absences.filter((x) => x.worker_id !== 109); return p; }
+
+test('gyereklétszám: csoportszám (50 → 2, 52 → 3) és a belőle adódó napi minimum', async () => {
+  const plan = makePlan({ mode: 'mindenki', sub: true });
+  assert.equal(plan.settings.groupMax, 25);
+  assert.deepEqual(plan.roles.map((r) => r.groupsPer), [1, 0, 2]);
+  plan.children['2027-06-21'] = 50; plan.children['2027-06-28'] = 52; plan.children['2027-07-05'] = 80;
+  assert.equal(M.groupsOn(plan, '2027-06-23'), 2);
+  assert.equal(M.groupsOn(plan, '2027-07-01'), 3);
+  assert.equal(M.groupsOn(plan, '2027-07-12'), null);
+  const [ped, asz, daj] = plan.roles;
+  assert.equal(M.dayMin(plan, ped, 'DE', '2027-06-29'), 3);
+  assert.equal(M.dayMin(plan, ped, 'DU', '2027-06-29'), 3);
+  assert.equal(M.dayMin(plan, daj, 'DE', '2027-06-29'), 2);  // 3 csoport, 1 dajka 2 csoportot lát el
+  assert.equal(M.dayMin(plan, daj, 'DU', '2027-06-22'), 2);  // 2 csoport → 1, de a fix minimum 2
+  assert.equal(M.dayMin(plan, asz, 'D', '2027-06-29'), 3);   // asszisztens: fix
+  assert.equal(M.dayMin(plan, ped, 'DU', '2027-07-12'), 1);  // nincs megadva → fix minimum
+  // 80 gyerek → 4 csoport → 4 óvónő DE + 4 DU kellene; 6 pedagógus szabadságon → 5 + 4 asszisztens
+  for (const id of [100, 101, 102, 103, 104, 105]) plan.absences.push(abs(id, '2027-07-05', '2027-07-09'));
+  const { cal, abs: am } = ctx(plan);
+  assert.equal(M.precheck(plan, cal, am).filter((c) => c.group_id === 1).length, 0, '5 óvónő + 4 asszisztens elég a 4+4-hez');
+  const [a] = await generateAlternatives(getHighs, plan, cal, am, { count: 1, timeLimit: TL });
+  const v = M.validate(plan, cal, am, { grid: a.grid });
+  assert.equal(v.errors.length, 0, JSON.stringify(v.errors.slice(0, 2)));
+  assert.equal(v.counts['min|2027-07-06|DE|1'], 4);
+  for (const sh of ['DE', 'DU']) assert.ok(v.counts[`2027-07-06|${sh}|1`] + v.counts[`cov|2027-07-06|${sh}|1`] >= 4);
+  // 260 gyerek → 11 csoport: DE és DU is 11 − 4 asszisztens = 7 óvónő kellene, csak 5 van → ütközés
+  plan.children['2027-07-05'] = 260;
+  const c = M.precheck(plan, cal, am).filter((x) => x.group_id === 1);
+  assert.equal(c.length, 5);
+  assert.equal(c[0].groups, 11);
+});
+
+test('ki kivel: „nem szívesen” párok szétválnak, „szívesen” párok együtt (munkakörök között is)', async () => {
+  const plan = makePlan({ mode: 'mindenki', sub: true });
+  plan.roles[0].opt = { DE: 3, DU: 2, D: 0 };
+  plan.prefs = { '100|101': 'N', '101|100': 'N', '102|103': 'I', '103|102': 'I', '104|115': 'I', '115|104': 'I', '105|116': 'N' };
+  const pairs = M.pairList(plan);
+  assert.deepEqual(pairs.map((x) => [x.a, x.b, x.score]).sort(), [[100, 101, -2], [102, 103, 2], [104, 115, 2], [105, 116, -1]].sort());
+  const { cal, abs: am } = ctx(plan);
+  const [a] = await generateAlternatives(getHighs, plan, cal, am, { count: 1, timeLimit: TL });
+  const v = M.validate(plan, cal, am, { grid: a.grid });
+  assert.equal(v.errors.length, 0);
+  const rep = Object.fromEntries(M.pairReport(plan, cal, am, a.grid).map((x) => [`${x.a}|${x.b}`, x]));
+  assert.equal(rep['100|101'].together, 0, 'nem szívesen: soha egy műszakban');
+  assert.ok(rep['102|103'].together >= rep['102|103'].both * 0.8, `szívesen: ${rep['102|103'].together}/${rep['102|103'].both}`);
+  assert.ok(rep['104|115'].together >= rep['104|115'].both * 0.8, `óvónő–dajka: ${rep['104|115'].together}/${rep['104|115'].both}`);
+  assert.equal(rep['105|116'].together, 0);
+  assert.equal(v.metrics.pairNoDays, 0);
+  // szinte csak a preferencia miatt: preferencia nélkül nem így alakulna
+  const p0 = structuredClone(plan); p0.prefs = {};
+  const [b] = await generateAlternatives(getHighs, p0, cal, am, { count: 1, timeLimit: TL });
+  assert.ok(M.togetherDays(b.grid, am, 100, 101, cal.workdays) > 0);
+});

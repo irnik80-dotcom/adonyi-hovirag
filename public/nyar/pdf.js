@@ -132,13 +132,16 @@ export async function makePdf(plan, cal, abs, val, months, deps = null, sheets =
       if (rep.show_counts) for (const sh of shiftsOf(role)) {
         y -= rowH;
         rect(left, y, right - left, rowH, rgb(0.97, 0.98, 0.97));
-        text(`${SHIFT_LABEL[sh]} (min. ${role.min[sh]})`, left + 4, y + rowH / 2 - fs / 2.8, fs - 1, F, grey);
+        text(`${SHIFT_LABEL[sh]}${role.groupsPer > 0 && Object.keys(plan.children || {}).length ? '' : ` (min. ${role.min[sh]})`}`, left + 4, y + rowH / 2 - fs / 2.8, fs - 1, F, grey);
         days.forEach((d, i) => {
           if (!d.work) { rect(colX(i), y, colW, rowH, hex(rgb, d.outside ? '#F5F5F5' : d.weekend ? s.colors.hetvege : s.colors.zarva)); return; }
           const n = val.counts[`${d.date}|${sh}|${role.group_id}`] ?? 0;
-          const short = n < role.min[sh];
-          const over = n > (role.opt?.[sh] ?? role.min[sh]);
-          centered(over && plan.approvals[approvalKey(d.date, sh, role.group_id)] ? `${n}✓` : n, colX(i), colW, y + rowH / 2 - fs / 2.8, fs - 1, short || over ? B : F, short ? red : grey);
+          const c = val.counts[`cov|${d.date}|${sh}|${role.group_id}`] || 0;
+          const mn = val.counts[`min|${d.date}|${sh}|${role.group_id}`] ?? role.min[sh];
+          const own = role.subBy != null ? Math.min(role.minOwn ?? 1, mn) : 0;
+          const short = n + c < mn || n < own;
+          const over = n > Math.max(role.opt?.[sh] ?? mn, mn);
+          centered(`${n}${c ? '+' + c : ''}${over && plan.approvals[approvalKey(d.date, sh, role.group_id)] ? '✓' : ''}`, colX(i), colW, y + rowH / 2 - fs / 2.8, fs - 1, short || over ? B : F, short ? red : grey);
         });
         hLines.push(y);
       }

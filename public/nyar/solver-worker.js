@@ -1,6 +1,7 @@
-// Web Worker: egy munkakör változatait számolja HiGHS-szal, hogy a felület közben ne akadjon meg.
+// Web Worker: egy munkakör (vagy preferenciákkal összekötött munkakör-csoport) változatait számolja HiGHS-szal,
+// hogy a felület közben ne akadjon meg.
 import loadHighs from './vendor/highs.mjs';
-import { generateRoleAlternatives } from './solver.js';
+import { generateGroupAlternatives } from './solver.js';
 
 let highs = null;
 const getHighs = async (force) => {
@@ -9,9 +10,9 @@ const getHighs = async (force) => {
 };
 
 self.onmessage = async (e) => {
-  const { id, pr, profiles, timeLimit } = e.data;
+  const { id, prs, pairs, profiles, timeLimit } = e.data;
   try {
-    const res = await generateRoleAlternatives(getHighs, pr, profiles, { timeLimit, onProgress: (ai) => self.postMessage({ id, progress: ai }) });
+    const res = await generateGroupAlternatives(getHighs, prs, pairs || [], profiles, { timeLimit, onProgress: (ai) => self.postMessage({ id, progress: ai }) });
     self.postMessage({ id, done: res });
   } catch (err) {
     self.postMessage({ id, error: String(err?.message || err) });

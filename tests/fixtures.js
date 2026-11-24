@@ -12,4 +12,9 @@ export function makeWorkers({ ped = 11, asz = 4, daj = 8 } = {}) {
 // 2027-es törvényi ünnepek (a fő app holidaysOf-ja szerint a nyári időszakban csak augusztus 20.)
 export const HOLIDAYS_2027 = [{ date: '2027-08-20', kind: 'off', label: 'Államalapítás ünnepe' }];
 // mode: a régebbi tesztek a pihenőnapos módot vizsgálják; az új alapértelmezés a 'mindenki'
-export function makePlan(opts = {}) { const p = newPlan(2027, GROUPS, makeWorkers(opts)); p.mode = opts.mode || 'pihenovel'; return p; }
+// sub: a régebbi tesztek helyettesítés nélkül futnak; az új alapértelmezés: az asszisztens helyettesítheti az óvónőt
+export function makePlan(opts = {}) {
+  const p = newPlan(2027, GROUPS, makeWorkers(opts)); p.mode = opts.mode || 'pihenovel';
+  if (!opts.sub) for (const r of p.roles) r.subBy = null;
+  return p;
+}

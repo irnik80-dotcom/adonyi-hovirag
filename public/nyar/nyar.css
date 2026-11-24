@@ -117,3 +117,14 @@
 .ny-role{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:10px 12px;margin-top:10px}
 .ny-role>.row .input{min-height:42px;padding:8px 10px}
 .ny-role .ny-tbl{margin-top:6px}
+.ny-grid tr.cnt td small{font-size:9px;font-weight:700;color:#7A4E8A;margin-left:1px}
+.ny-kids{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;margin-top:8px}
+.ny-kid{display:grid;grid-template-columns:1fr auto;gap:2px 8px;align-items:center;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:8px 10px;font-size:13px}
+.ny-kid em{grid-column:1/-1;font-style:normal;font-size:12px;color:var(--ink-2);min-height:14px}
+.ny-pref td.pf{cursor:pointer;font-weight:800;min-width:30px}
+.ny-pref td.p0{color:#B4BDB6;font-weight:500}
+.ny-pref td.pi{background:#BFE8B5;color:#1E5A16}
+.ny-pref td.pn{background:#F6C1B8;color:#8A1F0D}
+.ny-pref thead th small{display:block;font-size:9px}
+b.ny-pi{color:#2E7D22}b.ny-pn{color:#B23A1E}
+.ny-grid tr.grp td{background:#DDE8DA}
